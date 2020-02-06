@@ -54,10 +54,16 @@ struct ctr_params {
     uint8_t encrypted_counter[16];
 };
 
+#if !MICROPY_SSL_AXTLS && !MICROPY_SSL_MBEDTLS
+#error Use either axtls or mbedtls
+#endif
+
+
 #if MICROPY_SSL_AXTLS
 #include "lib/axtls/crypto/crypto.h"
 
 #define AES_CTX_IMPL AES_CTX
+#define RSA_CTX_IMPL RSA_CTX
 #endif
 
 #if MICROPY_SSL_MBEDTLS
@@ -333,6 +339,145 @@ STATIC mp_obj_t aes_process(size_t n_args, const mp_obj_t *args, bool encrypt) {
     return mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
 }
 
+
+typedef struct _mp_obj_rsa_t {
+	mp_obj_base_t base;
+#define RSA_KEYTYPE_PUBLIC  1
+#define RSA_KEYTYPE_PRIVATE  2
+	uint8_t rsa_key_type;
+	RSA_CTX_IMPL *ctx;
+} mp_obj_rsa_t;
+
+STATIC mp_obj_t ucryptolib_rsa_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+
+	mp_arg_check_num(n_args, n_kw, 2, 3, false);
+
+	if (n_args != 2 && n_args != 3){
+		mp_raise_TypeError("either 2/3 args for pub/priv key");
+	}
+
+	mp_obj_rsa_t *o = m_new_obj(mp_obj_rsa_t);
+	o->base.type = type;
+	o->rsa_key_type = 0;
+	o->ctx = NULL;
+
+	mp_buffer_info_t modulus;
+	mp_get_buffer_raise(args[0], &modulus, MP_BUFFER_READ);
+	if (modulus.len < 1) {
+		mp_raise_ValueError("modulus");
+	}
+
+	mp_buffer_info_t pub_exp;
+	mp_get_buffer_raise(args[1], &pub_exp, MP_BUFFER_READ);
+	if (pub_exp.len < 1) {
+		mp_raise_ValueError("pub_exp");
+	}
+
+	if (n_args == 3){
+		mp_buffer_info_t priv_exp;
+		mp_get_buffer_raise(args[2], &priv_exp, MP_BUFFER_READ);
+		if (priv_exp.len < 1) {
+			mp_raise_ValueError("priv_exp");
+		}
+
+		RSA_priv_key_new(&o->ctx,
+			modulus.buf, modulus.len,
+			pub_exp.buf, pub_exp.len,
+			priv_exp.buf, priv_exp.len 
+			);
+
+		o->rsa_key_type = RSA_KEYTYPE_PRIVATE;
+	}
+	else if (n_args == 2){
+		RSA_pub_key_new(&o->ctx,
+			modulus.buf, modulus.len,
+			pub_exp.buf, pub_exp.len);
+
+		o->rsa_key_type = RSA_KEYTYPE_PUBLIC;
+	}
+
+	return MP_OBJ_FROM_PTR(o);
+}
+
+STATIC mp_obj_t ucryptolib_rsa_encrypt_impl(mp_obj_t *self_in, mp_obj_t arg, bool is_signing)
+{
+	mp_obj_rsa_t *self = MP_OBJ_TO_PTR(self_in);
+
+	mp_buffer_info_t indata;
+	mp_get_buffer_raise(arg, &indata, MP_BUFFER_READ);
+	if (indata.len < 1) {
+		mp_raise_ValueError("indata");
+	}
+
+	vstr_t vstr;
+//	mp_buffer_info_t out_bufinfo;
+	uint8_t *out_buf_ptr;
+	vstr_init_len(&vstr, self->ctx->num_octets);
+	out_buf_ptr = (uint8_t*)vstr.buf;
+
+	int ret = RSA_encrypt(self->ctx, indata.buf, indata.len, out_buf_ptr, is_signing);
+
+	if (ret < 0){
+		mp_raise_ValueError("indata");
+	}
+
+	return mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
+}
+
+STATIC mp_obj_t ucryptolib_rsa_encrypt(mp_obj_t *self_in, mp_obj_t arg)
+{
+	return ucryptolib_rsa_encrypt_impl(self_in, arg, false);
+}
+
+STATIC mp_obj_t ucryptolib_rsa_sign(mp_obj_t *self_in, mp_obj_t arg)
+{
+	return ucryptolib_rsa_encrypt_impl(self_in, arg, true);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(ucryptolib_rsa_encrypt_obj, ucryptolib_rsa_encrypt);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(ucryptolib_rsa_sign_obj, ucryptolib_rsa_sign);
+
+
+STATIC mp_obj_t ucryptolib_rsa_decrypt_impl(mp_obj_t *self_in, mp_obj_t arg, bool is_decypting)
+{
+	mp_obj_rsa_t *self = MP_OBJ_TO_PTR(self_in);
+
+	mp_buffer_info_t indata;
+	mp_get_buffer_raise(arg, &indata, MP_BUFFER_READ);
+	if (indata.len < 1) {
+		mp_raise_ValueError("indata");
+	}
+
+	vstr_t vstr;
+	//	mp_buffer_info_t out_bufinfo;
+	uint8_t *out_buf_ptr;
+	vstr_init_len(&vstr, self->ctx->num_octets);
+	out_buf_ptr = (uint8_t*)vstr.buf;
+
+	int ret = RSA_decrypt(self->ctx, indata.buf, out_buf_ptr, vstr.len, is_decypting);
+
+	if (ret < 0){
+		mp_raise_ValueError("indata decrypt");
+	}
+
+	vstr.len = ret;
+
+	return mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
+}
+
+STATIC mp_obj_t ucryptolib_rsa_decrypt(mp_obj_t *self_in, mp_obj_t arg)
+{
+	return ucryptolib_rsa_decrypt_impl(self_in, arg, true);
+}
+
+STATIC mp_obj_t ucryptolib_rsa_verify(mp_obj_t *self_in, mp_obj_t arg)
+{
+	return ucryptolib_rsa_decrypt_impl(self_in, arg, false);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(ucryptolib_rsa_decrypt_obj, ucryptolib_rsa_decrypt);
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(ucryptolib_rsa_verify_obj, ucryptolib_rsa_verify);
+
 STATIC mp_obj_t ucryptolib_aes_encrypt(size_t n_args, const mp_obj_t *args) {
     return aes_process(n_args, args, true);
 }
@@ -356,6 +501,23 @@ STATIC const mp_obj_type_t ucryptolib_aes_type = {
     .locals_dict = (void*)&ucryptolib_aes_locals_dict,
 };
 
+STATIC const mp_rom_map_elem_t ucryptolib_rsa_locals_dict_table[] = {
+	{ MP_ROM_QSTR(MP_QSTR_encrypt), MP_ROM_PTR(&ucryptolib_rsa_encrypt_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_decrypt), MP_ROM_PTR(&ucryptolib_rsa_decrypt_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_sign), MP_ROM_PTR(&ucryptolib_rsa_sign_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_verify), MP_ROM_PTR(&ucryptolib_rsa_verify_obj) },
+};
+
+STATIC MP_DEFINE_CONST_DICT(ucryptolib_rsa_locals_dict, ucryptolib_rsa_locals_dict_table);
+
+
+STATIC const mp_obj_type_t ucryptolib_rsa_type = {
+	{ &mp_type_type },
+	.name = MP_QSTR_rsa,
+	.make_new = ucryptolib_rsa_make_new,
+	.locals_dict = (void*)&ucryptolib_rsa_locals_dict,
+};
+
 STATIC const mp_rom_map_elem_t mp_module_ucryptolib_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ucryptolib) },
     { MP_ROM_QSTR(MP_QSTR_aes), MP_ROM_PTR(&ucryptolib_aes_type) },
@@ -366,6 +528,7 @@ STATIC const mp_rom_map_elem_t mp_module_ucryptolib_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_MODE_CTR), MP_ROM_INT(UCRYPTOLIB_MODE_CTR) },
     #endif
 #endif
+	{ MP_ROM_QSTR(MP_QSTR_rsa), MP_ROM_PTR(&ucryptolib_rsa_type) },
 };
 
 STATIC MP_DEFINE_CONST_DICT(mp_module_ucryptolib_globals, mp_module_ucryptolib_globals_table);
