@@ -399,7 +399,7 @@ STATIC mp_obj_t ucryptolib_rsa_make_new(const mp_obj_type_t *type, size_t n_args
 	return MP_OBJ_FROM_PTR(o);
 }
 
-STATIC mp_obj_t ucryptolib_rsa_encrypt_impl(mp_obj_t *self_in, mp_obj_t arg, bool is_signing)
+STATIC mp_obj_t ucryptolib_rsa_encrypt_impl(mp_obj_t self_in, mp_obj_t arg, bool is_signing)
 {
 	mp_obj_rsa_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -424,12 +424,12 @@ STATIC mp_obj_t ucryptolib_rsa_encrypt_impl(mp_obj_t *self_in, mp_obj_t arg, boo
 	return mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
 }
 
-STATIC mp_obj_t ucryptolib_rsa_encrypt(mp_obj_t *self_in, mp_obj_t arg)
+STATIC mp_obj_t ucryptolib_rsa_encrypt(mp_obj_t self_in, mp_obj_t arg)
 {
 	return ucryptolib_rsa_encrypt_impl(self_in, arg, false);
 }
 
-STATIC mp_obj_t ucryptolib_rsa_sign(mp_obj_t *self_in, mp_obj_t arg)
+STATIC mp_obj_t ucryptolib_rsa_sign(mp_obj_t self_in, mp_obj_t arg)
 {
 	return ucryptolib_rsa_encrypt_impl(self_in, arg, true);
 }
@@ -438,7 +438,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(ucryptolib_rsa_encrypt_obj, ucryptolib_rsa_encr
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(ucryptolib_rsa_sign_obj, ucryptolib_rsa_sign);
 
 
-STATIC mp_obj_t ucryptolib_rsa_decrypt_impl(mp_obj_t *self_in, mp_obj_t arg, bool is_decypting)
+STATIC mp_obj_t ucryptolib_rsa_decrypt_impl(mp_obj_t self_in, mp_obj_t arg, bool is_decypting)
 {
 	mp_obj_rsa_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -465,12 +465,12 @@ STATIC mp_obj_t ucryptolib_rsa_decrypt_impl(mp_obj_t *self_in, mp_obj_t arg, boo
 	return mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
 }
 
-STATIC mp_obj_t ucryptolib_rsa_decrypt(mp_obj_t *self_in, mp_obj_t arg)
+STATIC mp_obj_t ucryptolib_rsa_decrypt(mp_obj_t self_in, mp_obj_t arg)
 {
 	return ucryptolib_rsa_decrypt_impl(self_in, arg, true);
 }
 
-STATIC mp_obj_t ucryptolib_rsa_verify(mp_obj_t *self_in, mp_obj_t arg)
+STATIC mp_obj_t ucryptolib_rsa_verify(mp_obj_t self_in, mp_obj_t arg)
 {
 	return ucryptolib_rsa_decrypt_impl(self_in, arg, false);
 }
