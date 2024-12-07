@@ -6,10 +6,10 @@
 
 This module provides a driver for WS2818 / NeoPixel LEDs.
 
-.. note:: This module is only included by default on the ESP8266 and ESP32
-   ports. On STM32 / Pyboard, you can `download the module
-   <https://github.com/micropython/micropython/blob/master/drivers/neopixel/neopixel.py>`_
-   and copy it to the filesystem.
+.. note:: This module is only included by default on the ESP8266, ESP32 and RP2
+   ports. On STM32 / Pyboard and others, you can either install the
+   ``neopixel`` package using :term:`mip`, or you can download the module
+   directly from :term:`micropython-lib` and copy it to the filesystem.
 
 class NeoPixel
 --------------
@@ -43,7 +43,8 @@ Constructors
         - *pin* is a machine.Pin instance.
         - *n* is the number of LEDs in the strip.
         - *bpp* is 3 for RGB LEDs, and 4 for RGBW LEDs.
-        - *timing* is 0 for 400KHz, and 1 for 800kHz LEDs (most are 800kHz).
+        - *timing* is 0 for 400KHz, and 1 for 800kHz LEDs (most are 800kHz). You
+          may also supply a timing tuple as accepted by `machine.bitstream()`.
 
 Pixel access methods
 --------------------

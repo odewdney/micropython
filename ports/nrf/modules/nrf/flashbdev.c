@@ -74,7 +74,7 @@ mp_obj_t nrf_flashbdev_readblocks(size_t n_args, const mp_obj_t *args) {
 
     return MP_OBJ_NEW_SMALL_INT(0);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(nrf_flashbdev_readblocks_obj, 3, 4, nrf_flashbdev_readblocks);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(nrf_flashbdev_readblocks_obj, 3, 4, nrf_flashbdev_readblocks);
 
 mp_obj_t nrf_flashbdev_writeblocks(size_t n_args, const mp_obj_t *args) {
     nrf_flash_obj_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -95,7 +95,7 @@ mp_obj_t nrf_flashbdev_writeblocks(size_t n_args, const mp_obj_t *args) {
 
     return MP_OBJ_NEW_SMALL_INT(0);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(nrf_flashbdev_writeblocks_obj, 3, 4, nrf_flashbdev_writeblocks);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(nrf_flashbdev_writeblocks_obj, 3, 4, nrf_flashbdev_writeblocks);
 
 mp_obj_t nrf_flashbdev_ioctl(mp_obj_t self_in, mp_obj_t op_in, mp_obj_t arg_in) {
     nrf_flash_obj_t *self = MP_OBJ_TO_PTR(self_in);
@@ -137,21 +137,21 @@ mp_obj_t nrf_flashbdev_ioctl(mp_obj_t self_in, mp_obj_t op_in, mp_obj_t arg_in) 
             return mp_const_none;
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(nrf_flashbdev_ioctl_obj, nrf_flashbdev_ioctl);
+static MP_DEFINE_CONST_FUN_OBJ_3(nrf_flashbdev_ioctl_obj, nrf_flashbdev_ioctl);
 
-STATIC const mp_rom_map_elem_t nrf_flashbdev_locals_dict_table[] = {
+static const mp_rom_map_elem_t nrf_flashbdev_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readblocks), MP_ROM_PTR(&nrf_flashbdev_readblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_writeblocks), MP_ROM_PTR(&nrf_flashbdev_writeblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_ioctl), MP_ROM_PTR(&nrf_flashbdev_ioctl_obj) },
 };
-STATIC MP_DEFINE_CONST_DICT(nrf_flashbdev_locals_dict, nrf_flashbdev_locals_dict_table);
+static MP_DEFINE_CONST_DICT(nrf_flashbdev_locals_dict, nrf_flashbdev_locals_dict_table);
 
-STATIC void nrf_flashbdev_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+static void nrf_flashbdev_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     nrf_flash_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(print, "Flash(start=0x%08x, len=%u)", self->start, self->len);
 }
 
-STATIC mp_obj_t nrf_flashbdev_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
+static mp_obj_t nrf_flashbdev_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     // Parse arguments
     enum { ARG_start, ARG_len };
     static const mp_arg_t allowed_args[] = {
@@ -165,8 +165,7 @@ STATIC mp_obj_t nrf_flashbdev_make_new(const mp_obj_type_t *type, size_t n_args,
         return MP_OBJ_FROM_PTR(&nrf_flash_obj);
     }
 
-    nrf_flash_obj_t *self = m_new_obj(nrf_flash_obj_t);
-    self->base.type = &nrf_flashbdev_type;
+    nrf_flash_obj_t *self = mp_obj_malloc(nrf_flash_obj_t, &nrf_flashbdev_type);
 
     mp_int_t start = args[ARG_start].u_int;
     mp_int_t len = args[ARG_len].u_int;
@@ -184,13 +183,14 @@ STATIC mp_obj_t nrf_flashbdev_make_new(const mp_obj_type_t *type, size_t n_args,
     return MP_OBJ_FROM_PTR(self);
 }
 
-const mp_obj_type_t nrf_flashbdev_type = {
-    { &mp_type_type },
-    .name = MP_QSTR_Flash,
-    .print = nrf_flashbdev_print,
-    .make_new = nrf_flashbdev_make_new,
-    .locals_dict = (mp_obj_dict_t *)&nrf_flashbdev_locals_dict,
-};
+MP_DEFINE_CONST_OBJ_TYPE(
+    nrf_flashbdev_type,
+    MP_QSTR_Flash,
+    MP_TYPE_FLAG_NONE,
+    make_new, nrf_flashbdev_make_new,
+    print, nrf_flashbdev_print,
+    locals_dict, &nrf_flashbdev_locals_dict
+    );
 
 void flashbdev_init(void) {
     // Set start to first aligned page from _fs_start.

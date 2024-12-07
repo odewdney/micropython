@@ -24,13 +24,19 @@
  * THE SOFTWARE.
  */
 
-#if MICROPY_PY_MACHINE_SDCARD
-
 #include "py/runtime.h"
 #include "py/mperrno.h"
 #include "extmod/vfs.h"
+
+#if MICROPY_PY_MACHINE_SDCARD
+
 #include "ticks.h"
+
+#if defined(MIMXRT1170x_SERIES)
+#include "cm7/fsl_cache.h"
+#else
 #include "fsl_cache.h"
+#endif
 
 #include "sdcard.h"
 
@@ -38,19 +44,19 @@
 enum { SDCARD_INIT_ARG_ID };
 
 
-STATIC const mp_arg_t sdcard_init_allowed_args[] = {
+static const mp_arg_t sdcard_init_allowed_args[] = {
     [SDCARD_INIT_ARG_ID] = { MP_QSTR_id, MP_ARG_INT, {.u_int = 1} },
 };
 
 
-STATIC void machine_sdcard_init_helper(mimxrt_sdcard_obj_t *self) {
+static void machine_sdcard_init_helper(mimxrt_sdcard_obj_t *self) {
     sdcard_init(self, 198000000UL);  // Initialize SDCard Host with 198MHz base clock
     sdcard_init_pins(self);
 
     ticks_delay_us64(2ULL * 1000ULL);  // Wait 2ms to allow USDHC signals to settle/debounce
 }
 
-STATIC mp_obj_t sdcard_obj_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
+static mp_obj_t sdcard_obj_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     mp_map_t kw_args;
     mp_map_init_fixed_table(&kw_args, n_kw, all_args + n_args);
 
@@ -62,7 +68,7 @@ STATIC mp_obj_t sdcard_obj_make_new(const mp_obj_type_t *type, size_t n_args, si
     mp_int_t sdcard_id = args[SDCARD_INIT_ARG_ID].u_int;
 
     if (!(1 <= sdcard_id && sdcard_id <= MP_ARRAY_SIZE(mimxrt_sdcard_objs))) {
-        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "SDCard(%d) doesn't exist", sdcard_id));
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("SDCard(%d) doesn't exist"), sdcard_id));
     }
 
     mimxrt_sdcard_obj_t *self = &mimxrt_sdcard_objs[(sdcard_id - 1)];
@@ -75,7 +81,7 @@ STATIC mp_obj_t sdcard_obj_make_new(const mp_obj_type_t *type, size_t n_args, si
 }
 
 // init()
-STATIC mp_obj_t machine_sdcard_init(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+static mp_obj_t machine_sdcard_init(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     mimxrt_sdcard_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
 
     if (!sdcard_state_initialized(self)) {
@@ -83,18 +89,18 @@ STATIC mp_obj_t machine_sdcard_init(size_t n_args, const mp_obj_t *pos_args, mp_
     }
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(machine_sdcard_init_obj, 1, machine_sdcard_init);
+static MP_DEFINE_CONST_FUN_OBJ_KW(machine_sdcard_init_obj, 1, machine_sdcard_init);
 
 // deinit()
-STATIC mp_obj_t machine_sdcard_deinit(mp_obj_t self_in) {
+static mp_obj_t machine_sdcard_deinit(mp_obj_t self_in) {
     mimxrt_sdcard_obj_t *self = MP_OBJ_TO_PTR(self_in);
     sdcard_deinit(self);
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_sdcard_deinit_obj, machine_sdcard_deinit);
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_sdcard_deinit_obj, machine_sdcard_deinit);
 
 // readblocks(block_num, buf)
-STATIC mp_obj_t machine_sdcard_readblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
+static mp_obj_t machine_sdcard_readblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
     mp_buffer_info_t bufinfo;
     mimxrt_sdcard_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_get_buffer_raise(buf, &bufinfo, MP_BUFFER_WRITE);
@@ -105,16 +111,16 @@ STATIC mp_obj_t machine_sdcard_readblocks(mp_obj_t self_in, mp_obj_t block_num, 
         return MP_OBJ_NEW_SMALL_INT(-MP_EIO);
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(machine_sdcard_readblocks_obj, machine_sdcard_readblocks);
+static MP_DEFINE_CONST_FUN_OBJ_3(machine_sdcard_readblocks_obj, machine_sdcard_readblocks);
 
 // present()
-STATIC mp_obj_t machine_sdcard_present(mp_obj_t self_in) {
+static mp_obj_t machine_sdcard_present(mp_obj_t self_in) {
     mimxrt_sdcard_obj_t *self = MP_OBJ_TO_PTR(self_in);
     return mp_obj_new_bool(sdcard_detect(self));
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_sdcard_present_obj, machine_sdcard_present);
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_sdcard_present_obj, machine_sdcard_present);
 
-STATIC mp_obj_t machine_sdcard_info(mp_obj_t self_in) {
+static mp_obj_t machine_sdcard_info(mp_obj_t self_in) {
     mimxrt_sdcard_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     if (sdcard_detect(self) && sdcard_state_initialized(self)) {
@@ -130,10 +136,10 @@ STATIC mp_obj_t machine_sdcard_info(mp_obj_t self_in) {
         return mp_const_none;
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_sdcard_info_obj, machine_sdcard_info);
+static MP_DEFINE_CONST_FUN_OBJ_1(machine_sdcard_info_obj, machine_sdcard_info);
 
 // writeblocks(block_num, buf)
-STATIC mp_obj_t machine_sdcard_writeblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
+static mp_obj_t machine_sdcard_writeblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
     mp_buffer_info_t bufinfo;
     mimxrt_sdcard_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_get_buffer_raise(buf, &bufinfo, MP_BUFFER_WRITE);
@@ -144,10 +150,10 @@ STATIC mp_obj_t machine_sdcard_writeblocks(mp_obj_t self_in, mp_obj_t block_num,
         return MP_OBJ_NEW_SMALL_INT(-MP_EIO);
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(machine_sdcard_writeblocks_obj, machine_sdcard_writeblocks);
+static MP_DEFINE_CONST_FUN_OBJ_3(machine_sdcard_writeblocks_obj, machine_sdcard_writeblocks);
 
 // ioctl(op, arg)
-STATIC mp_obj_t machine_sdcard_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t arg_in) {
+static mp_obj_t machine_sdcard_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t arg_in) {
     mimxrt_sdcard_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_int_t cmd = mp_obj_get_int(cmd_in);
 
@@ -194,9 +200,9 @@ STATIC mp_obj_t machine_sdcard_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t
         }
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(machine_sdcard_ioctl_obj, machine_sdcard_ioctl);
+static MP_DEFINE_CONST_FUN_OBJ_3(machine_sdcard_ioctl_obj, machine_sdcard_ioctl);
 
-STATIC const mp_rom_map_elem_t sdcard_locals_dict_table[] = {
+static const mp_rom_map_elem_t sdcard_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_init),        MP_ROM_PTR(&machine_sdcard_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_deinit),      MP_ROM_PTR(&machine_sdcard_deinit_obj) },
     { MP_ROM_QSTR(MP_QSTR_present),     MP_ROM_PTR(&machine_sdcard_present_obj) },
@@ -206,14 +212,15 @@ STATIC const mp_rom_map_elem_t sdcard_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_writeblocks), MP_ROM_PTR(&machine_sdcard_writeblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_ioctl),       MP_ROM_PTR(&machine_sdcard_ioctl_obj) },
 };
-STATIC MP_DEFINE_CONST_DICT(sdcard_locals_dict, sdcard_locals_dict_table);
+static MP_DEFINE_CONST_DICT(sdcard_locals_dict, sdcard_locals_dict_table);
 
-const mp_obj_type_t machine_sdcard_type = {
-    { &mp_type_type },
-    .name = MP_QSTR_SDCard,
-    .make_new = sdcard_obj_make_new,
-    .locals_dict = (mp_obj_dict_t *)&sdcard_locals_dict,
-};
+MP_DEFINE_CONST_OBJ_TYPE(
+    machine_sdcard_type,
+    MP_QSTR_SDCard,
+    MP_TYPE_FLAG_NONE,
+    make_new, sdcard_obj_make_new,
+    locals_dict, &sdcard_locals_dict
+    );
 
 void machine_sdcard_init0(void) {
     return;

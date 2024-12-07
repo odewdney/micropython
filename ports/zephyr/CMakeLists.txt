@@ -22,7 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-cmake_minimum_required(VERSION 3.13.1)
+cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(micropython)
@@ -40,23 +40,22 @@ set(MICROPY_SOURCE_PORT
     machine_i2c.c
     machine_spi.c
     machine_pin.c
-    machine_uart.c
     modbluetooth_zephyr.c
-    modmachine.c
-    moduos.c
-    modusocket.c
-    modutime.c
+    modsocket.c
     modzephyr.c
     modzsensor.c
     mphalport.c
     uart_core.c
+    zephyr_device.c
     zephyr_storage.c
+    mpthreadport.c
 )
 list(TRANSFORM MICROPY_SOURCE_PORT PREPEND ${MICROPY_PORT_DIR}/)
 
 set(MICROPY_SOURCE_SHARED
     libc/printf.c
     readline/readline.c
+    runtime/gchelper_generic.c
     runtime/interrupt_char.c
     runtime/mpirq.c
     runtime/pyexec.c
@@ -113,6 +112,7 @@ zephyr_library_compile_definitions(
 )
 
 zephyr_library_sources(${MICROPY_SOURCE_QSTR})
+zephyr_library_link_libraries(kernel)
 
 add_dependencies(${MICROPY_TARGET} zephyr_generated_headers)
 

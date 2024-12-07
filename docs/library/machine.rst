@@ -19,19 +19,56 @@ This is true for both physical devices with IDs >= 0 and "virtual" devices
 with negative IDs like -1 (these "virtual" devices are still thin shims on
 top of real hardware and real hardware interrupts). See :ref:`isr_rules`.
 
+Memory access
+-------------
+
+The module exposes three objects used for raw memory access.
+
+.. data:: mem8
+
+    Read/write 8 bits of memory.
+
+.. data:: mem16
+
+    Read/write 16 bits of memory.
+
+.. data:: mem32
+
+    Read/write 32 bits of memory.
+
+Use subscript notation ``[...]`` to index these objects with the address of
+interest. Note that the address is the byte address, regardless of the size of
+memory being accessed.
+
+Example use (registers are specific to an stm32 microcontroller):
+
+.. code-block:: python3
+
+    import machine
+    from micropython import const
+
+    GPIOA = const(0x48000000)
+    GPIO_BSRR = const(0x18)
+    GPIO_IDR = const(0x10)
+
+    # set PA2 high
+    machine.mem32[GPIOA + GPIO_BSRR] = 1 << 2
+
+    # read PA3
+    value = (machine.mem32[GPIOA + GPIO_IDR] >> 3) & 1
+
 Reset related functions
 -----------------------
 
 .. function:: reset()
 
-   Resets the device in a manner similar to pushing the external RESET
-   button.
+   :ref:`Hard resets <hard_reset>` the device in a manner similar to pushing the
+   external RESET button.
 
 .. function:: soft_reset()
 
-   Performs a soft reset of the interpreter, deleting all Python objects and
-   resetting the Python heap.  It tries to retain the method by which the user
-   is connected to the MicroPython REPL (eg serial, USB, Wifi).
+   Performs a :ref:`soft reset <soft_reset>` of the interpreter, deleting all
+   Python objects and resetting the Python heap.
 
 .. function:: reset_cause()
 
@@ -47,6 +84,23 @@ Reset related functions
 
 Interrupt related functions
 ---------------------------
+
+The following functions allow control over interrupts.  Some systems require
+interrupts to operate correctly so disabling them for long periods may
+compromise core functionality, for example watchdog timers may trigger
+unexpectedly.  Interrupts should only be disabled for a minimum amount of time
+and then re-enabled to their previous state.  For example::
+
+    import machine
+
+    # Disable interrupts
+    state = machine.disable_irq()
+
+    # Do a small amount of time-critical work here
+
+    # Enable interrupts
+    machine.enable_irq(state)
+
 
 .. function:: disable_irq()
 
@@ -72,14 +126,20 @@ Power related functions
 
 .. function:: idle()
 
-   Gates the clock to the CPU, useful to reduce power consumption at any time during
-   short or long periods. Peripherals continue working and execution resumes as soon
-   as any interrupt is triggered (on many ports this includes system timer
-   interrupt occurring at regular intervals on the order of millisecond).
+   Gates the clock to the CPU, useful to reduce power consumption at any time
+   during short or long periods. Peripherals continue working and execution
+   resumes as soon as any interrupt is triggered, or at most one millisecond
+   after the CPU was paused.
+
+   It is recommended to call this function inside any tight loop that is
+   continuously checking for an external change (i.e. polling). This will reduce
+   power consumption without significantly impacting performance. To reduce
+   power consumption further then see the :func:`lightsleep`,
+   :func:`time.sleep()` and :func:`time.sleep_ms()` functions.
 
 .. function:: sleep()
 
-   .. note:: This function is deprecated, use `lightsleep()` instead with no arguments.
+   .. note:: This function is deprecated, use :func:`lightsleep()` instead with no arguments.
 
 .. function:: lightsleep([time_ms])
               deepsleep([time_ms])
@@ -199,13 +259,15 @@ Classes
    machine.Pin.rst
    machine.Signal.rst
    machine.ADC.rst
+   machine.ADCBlock.rst
    machine.PWM.rst
    machine.UART.rst
    machine.SPI.rst
    machine.I2C.rst
-   machine.I2S.rst   
+   machine.I2S.rst
    machine.RTC.rst
    machine.Timer.rst
    machine.WDT.rst
    machine.SD.rst
    machine.SDCard.rst
+   machine.USBDevice.rst

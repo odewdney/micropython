@@ -1,7 +1,7 @@
 /*
 ** ###################################################################
 ** Linker script inspired by NXP linker script for MIMXRT10xx
-** 
+**
 ** Copyright for original linker script:
 **     Copyright 2016 Freescale Semiconductor, Inc.
 **     Copyright 2016-2018 NXP
@@ -26,7 +26,7 @@ HEAP_SIZE  = DEFINED(__heap_size__)  ? __heap_size__  : 0x0400;
 STACK_SIZE = DEFINED(__stack_size__) ? __stack_size__ : 0x0400;
 
 /* Reserved Area
- * Users can create a reserved area at the end of the flash memory via 
+ * Users can create a reserved area at the end of the flash memory via
  * 'reserved_size' variable. The size of the reserved area should be a multiple
  * of the sector size of the flash memory!
  */
@@ -41,19 +41,26 @@ MEMORY
   m_text         (RX) : ORIGIN = text_start,            LENGTH = text_size
   m_vfs          (RX) : ORIGIN = vfs_start,             LENGTH = vfs_size
   /* Teensy uses the last bit of flash for recovery. */
-  m_reserved     (RX) : ORIGIN = (vfs_start + vfs_size), LENGTH = reserved_size  
+  m_reserved     (RX) : ORIGIN = (vfs_start + vfs_size), LENGTH = reserved_size
   m_itcm         (RX) : ORIGIN = itcm_start,            LENGTH = itcm_size
   m_dtcm         (RW) : ORIGIN = dtcm_start,            LENGTH = dtcm_size
   m_ocrm         (RW) : ORIGIN = ocrm_start,            LENGTH = ocrm_size
+
+  #if MICROPY_HW_SDRAM_AVAIL
+  m_sdram        (RX) : ORIGIN = sdram_start,           LENGTH = sdram_size
+  #endif
 }
 
 /* Define output sections */
 SECTIONS
 {
   __flash_start = flash_start;
+  #if MICROPY_HW_SDRAM_AVAIL
+  __sdram_start = sdram_start;
+  #endif
   __vfs_start = ORIGIN(m_vfs);
-  __vfs_end = __vfs_start + LENGTH(m_vfs);  
-  
+  __vfs_end = __vfs_start + LENGTH(m_vfs);
+
   .flash_config :
   {
     . = ALIGN(4);
@@ -76,20 +83,21 @@ SECTIONS
   /* The startup code goes first into internal RAM */
   .interrupts :
   {
-    __VECTOR_TABLE = .;
+    __Vectors = .;
+    __vector_table = .;
     . = ALIGN(4);
     KEEP(*(.isr_vector))     /* Startup code */
     . = ALIGN(4);
   } > m_interrupts
 
-  __VECTOR_RAM = __VECTOR_TABLE;
+  __VECTOR_RAM = __Vectors;
   __RAM_VECTOR_TABLE_SIZE_BYTES = 0x0;
 
   /* The program code and other data goes into internal RAM */
   .text :
   {
     . = ALIGN(4);
-    *(EXCLUDE_FILE(*fsl_flexspi.o) .text*) /* .text* sections (code) */
+    *(EXCLUDE_FILE(*fsl_flexspi.o *gc.o *vm.o *parse*.o *runtime*.o *map.o *mpirq.o ) .text*) /* .text* sections (code) */
     *(.rodata)               /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)              /* .rodata* sections (constants, strings, etc.) */
     *(.glue_7)               /* glue arm to thumb code */
@@ -169,7 +177,7 @@ SECTIONS
     KEEP (*(.fini_array*))
     PROVIDE_HIDDEN (__fini_array_end = .);
   } > m_text
-  
+
   __etext = .;    /* define a global symbol at end of code */
   __DATA_ROM = .; /* Symbol is used by startup for data initialization */
 
@@ -193,13 +201,14 @@ SECTIONS
   {
     . = ALIGN(4);
     __ram_function_start__ = .;
-    *fsl_flexspi.o(.text*)
     *(.ram_functions*)
+    /* remaining .text and .rodata; i.e. stuff we exclude above because we want it in RAM */
+    *(.text*)
     . = ALIGN(4);
     __ram_function_end__ = .;
-  } > m_itcm  
+  } > m_itcm
 
-  __NDATA_ROM = __DATA_ROM + (__ram_function_end__ - __data_start__);
+  __NDATA_ROM = __RAM_FUNCTIONS_ROM + (__ram_function_end__ - __ram_function_start__);
   .ncache.init : AT(__NDATA_ROM)
   {
     __noncachedata_start__ = .;   /* create a global symbol at ncache data start */
@@ -215,7 +224,8 @@ SECTIONS
     __noncachedata_end__ = .;     /* define a global symbol at ncache data end */
   } > m_dtcm
 
-  __DATA_END = __NDATA_ROM + (__noncachedata_init_end__ - __noncachedata_start__);
+  __DATA_END = __NDATA_ROM + (__noncachedata_end__ - __noncachedata_start__);
+  __FLASH_DATA_END = __NDATA_ROM + (__noncachedata_init_end__ - __noncachedata_start__);
   text_end = ORIGIN(m_text) + LENGTH(m_text);
   ASSERT(__DATA_END <= text_end, "region m_text overflowed with text and data")
 
@@ -253,6 +263,8 @@ SECTIONS
     . = ALIGN(8);
     . += STACK_SIZE;
   } > m_dtcm
+
+  _flashimagelen = __FLASH_DATA_END - flash_start;
 
   /* Initializes stack on the end of block */
   __StackTop   = ORIGIN(m_dtcm) + LENGTH(m_dtcm);

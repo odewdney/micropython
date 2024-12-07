@@ -13,36 +13,46 @@
 #define MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE (0)
 
 // The board has a 24MHz HSE, the following gives 280MHz CPU speed
-#define MICROPY_HW_CLK_PLLM (12)
-#define MICROPY_HW_CLK_PLLN (280)
-#define MICROPY_HW_CLK_PLLP (2)
-#define MICROPY_HW_CLK_PLLQ (2)
-#define MICROPY_HW_CLK_PLLR (2)
+#define MICROPY_HW_CLK_PLLM         (12)
+#define MICROPY_HW_CLK_PLLN         (280)
+#define MICROPY_HW_CLK_PLLP         (2)
+#define MICROPY_HW_CLK_PLLQ         (2)
+#define MICROPY_HW_CLK_PLLR         (2)
+#define MICROPY_HW_CLK_PLLVCI       (RCC_PLL1VCIRANGE_1)
+#define MICROPY_HW_CLK_PLLVCO       (RCC_PLL1VCOWIDE)
+#define MICROPY_HW_CLK_PLLFRAC      (0)
+
 
 // The USB clock is set using PLL3 (48Mhz usb clock)
-#define MICROPY_HW_CLK_PLL3M (12)
-#define MICROPY_HW_CLK_PLL3N (192)
-#define MICROPY_HW_CLK_PLL3P (17)
-#define MICROPY_HW_CLK_PLL3Q (8)
-#define MICROPY_HW_CLK_PLL3R (2)
+#define MICROPY_HW_CLK_PLL3M        (12)
+#define MICROPY_HW_CLK_PLL3N        (192)
+#define MICROPY_HW_CLK_PLL3P        (17)
+#define MICROPY_HW_CLK_PLL3Q        (8)
+#define MICROPY_HW_CLK_PLL3R        (2)
+#define MICROPY_HW_CLK_PLL3VCI      (RCC_PLL3VCIRANGE_1)
+#define MICROPY_HW_CLK_PLL3VCO      (RCC_PLL3VCOWIDE)
+#define MICROPY_HW_CLK_PLL3FRAC     (0)
 
 // 6 wait states when running at 280MHz (VOS0 range)
 #define MICROPY_HW_FLASH_LATENCY    FLASH_LATENCY_6
 
-#if 0
+// SMPS configuration
+#define MICROPY_HW_PWR_SMPS_CONFIG  (PWR_DIRECT_SMPS_SUPPLY)
+
+#if !MICROPY_HW_ENABLE_INTERNAL_FLASH_STORAGE
 // 512MBit external OSPI flash, used for either the filesystem or XIP memory mapped
 #define MICROPY_HW_OSPIFLASH_SIZE_BITS_LOG2 (29)
 #define MICROPY_HW_OSPIFLASH_CS     (pin_G6)
-#define MICROPY_HW_OSPIFLASH_CLK    (pin_B2)
+#define MICROPY_HW_OSPIFLASH_SCK    (pin_B2)
 #define MICROPY_HW_OSPIFLASH_DQS    (pin_C5)
-#define MICROPY_HW_OSPIFLASH_IO0    (pin_P8)
+#define MICROPY_HW_OSPIFLASH_IO0    (pin_D11)
 #define MICROPY_HW_OSPIFLASH_IO1    (pin_F9)
 #define MICROPY_HW_OSPIFLASH_IO2    (pin_F7)
 #define MICROPY_HW_OSPIFLASH_IO3    (pin_F6)
 #define MICROPY_HW_OSPIFLASH_IO4    (pin_C1)
 #define MICROPY_HW_OSPIFLASH_IO5    (pin_H3)
-#define MICROPY_HW_OSPIFLASH_IO6    (pin_D6)
-#define MICROPY_HW_OSPIFLASH_IO7    (pin_G14)
+#define MICROPY_HW_OSPIFLASH_IO6    (pin_G9)
+#define MICROPY_HW_OSPIFLASH_IO7    (pin_D7)
 #endif
 
 // UART buses

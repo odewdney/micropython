@@ -11,6 +11,7 @@
 #include <string.h>
 #include "py/runtime.h"
 #include "py/mphal.h"
+#include "boardctrl.h"
 #include "pin.h"
 #include "pin_static_af.h"
 #include "mpu.h"
@@ -33,11 +34,19 @@
 #if defined(MICROPY_HW_FMC_SDCKE0) && defined(MICROPY_HW_FMC_SDNE0)
 #define FMC_SDRAM_BANK FMC_SDRAM_BANK1
 #define FMC_SDRAM_CMD_TARGET_BANK FMC_SDRAM_CMD_TARGET_BANK1
+#if MICROPY_HW_FMC_SWAP_BANKS
+#define SDRAM_START_ADDRESS 0x60000000
+#else
 #define SDRAM_START_ADDRESS 0xC0000000
+#endif
 #elif defined(MICROPY_HW_FMC_SDCKE1) && defined(MICROPY_HW_FMC_SDNE1)
 #define FMC_SDRAM_BANK FMC_SDRAM_BANK2
 #define FMC_SDRAM_CMD_TARGET_BANK FMC_SDRAM_CMD_TARGET_BANK2
+#if MICROPY_HW_FMC_SWAP_BANKS
+#define SDRAM_START_ADDRESS 0x70000000
+#else
 #define SDRAM_START_ADDRESS 0xD0000000
+#endif
 #endif
 
 // Provides the MPU_REGION_SIZE_X value when passed the size of region in bytes
@@ -50,7 +59,6 @@
 #ifdef FMC_SDRAM_BANK
 
 static void sdram_init_seq(SDRAM_HandleTypeDef *hsdram, FMC_SDRAM_CommandTypeDef *command);
-extern void __fatal_error(const char *msg);
 
 bool sdram_init(void) {
     SDRAM_HandleTypeDef hsdram;
@@ -58,6 +66,10 @@ bool sdram_init(void) {
     FMC_SDRAM_CommandTypeDef command;
 
     __HAL_RCC_FMC_CLK_ENABLE();
+
+    #if MICROPY_HW_FMC_SWAP_BANKS
+    HAL_SetFMCMemorySwappingConfig(FMC_SWAPBMAP_SDRAM_SRAM);
+    #endif
 
     #if defined(MICROPY_HW_FMC_SDCKE0)
     mp_hal_pin_config_alt_static_speed(MICROPY_HW_FMC_SDCKE0, MP_HAL_PIN_MODE_ALT, MP_HAL_PIN_PULL_NONE, MP_HAL_PIN_SPEED_VERY_HIGH, STATIC_AF_FMC_SDCKE0);
@@ -244,14 +256,14 @@ static void sdram_init_seq(SDRAM_HandleTypeDef
     #define REFRESH_COUNT (MICROPY_HW_SDRAM_REFRESH_RATE * 90000 / 8192 - 20)
     HAL_SDRAM_ProgramRefreshRate(hsdram, REFRESH_COUNT);
 
-    #if defined(STM32F7)
+    #if defined(STM32F7) || defined(STM32H7)
     /* Enable MPU for the SDRAM Memory Region to allow non-aligned
        accesses (hard-fault otherwise)
        Initially disable all access for the entire SDRAM memory space,
        then enable access/caching for the size used
     */
     uint32_t irq_state = mpu_config_start();
-    mpu_config_region(MPU_REGION_SDRAM1, SDRAM_START_ADDRESS, MPU_CONFIG_DISABLE(0x00, MPU_REGION_SIZE_512MB));
+    mpu_config_region(MPU_REGION_SDRAM1, SDRAM_START_ADDRESS, MPU_CONFIG_NOACCESS(0x00, MPU_REGION_SIZE_512MB));
     mpu_config_region(MPU_REGION_SDRAM2, SDRAM_START_ADDRESS, MPU_CONFIG_SDRAM(SDRAM_MPU_REGION_SIZE));
     mpu_config_end(irq_state);
     #endif
@@ -259,7 +271,7 @@ static void sdram_init_seq(SDRAM_HandleTypeDef
 
 void sdram_enter_low_power(void) {
     // Enter self-refresh mode.
-    // In self-refresh mode the SDRAM retains data with external clocking.
+    // In self-refresh mode the SDRAM retains data without external clocking.
     FMC_SDRAM_DEVICE->SDCMR |= (FMC_SDRAM_CMD_SELFREFRESH_MODE |     // Command Mode
         FMC_SDRAM_CMD_TARGET_BANK |                                  // Command Target
         (0 << 5U) |                                                  // Auto Refresh Number -1
@@ -276,6 +288,14 @@ void sdram_leave_low_power(void) {
         (0 << 9U));                                                  // Mode Register Definition
 }
 
+void sdram_enter_power_down(void) {
+    // Enter power-down mode.
+    FMC_SDRAM_DEVICE->SDCMR |= (FMC_SDRAM_CMD_POWERDOWN_MODE |       // Command Mode
+        FMC_SDRAM_CMD_TARGET_BANK |                                  // Command Target
+        (0 << 5U) |                                                  // Auto Refresh Number -1
+        (0 << 9U));                                                  // Mode Register Definition
+}
+
 #if __GNUC__ >= 11
 // Prevent array bounds warnings when accessing SDRAM_START_ADDRESS as a memory pointer.
 #pragma GCC diagnostic push
@@ -283,10 +303,10 @@ void sdram_leave_low_power(void) {
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
 #endif
 
-bool __attribute__((optimize("O0"))) sdram_test(bool exhaustive) {
+bool __attribute__((optimize("Os"))) sdram_test(bool exhaustive) {
     uint8_t const pattern = 0xaa;
     uint8_t const antipattern = 0x55;
-    uint8_t *const mem_base = (uint8_t *)sdram_start();
+    volatile uint8_t *const mem_base = (uint8_t *)sdram_start();
 
     #if MICROPY_HW_SDRAM_TEST_FAIL_ON_ERROR
     char error_buffer[1024];
@@ -310,13 +330,14 @@ bool __attribute__((optimize("O0"))) sdram_test(bool exhaustive) {
 
     // Test data bus
     for (uint32_t i = 0; i < MICROPY_HW_SDRAM_MEM_BUS_WIDTH; i++) {
-        *((uint32_t *)mem_base) = (1 << i);
-        if (*((uint32_t *)mem_base) != (1 << i)) {
+        *((volatile uint32_t *)mem_base) = (1 << i);
+        __DSB();
+        if (*((volatile uint32_t *)mem_base) != (1 << i)) {
             #if MICROPY_HW_SDRAM_TEST_FAIL_ON_ERROR
             snprintf(error_buffer, sizeof(error_buffer),
                 "Data bus test failed at 0x%p expected 0x%x found 0x%lx",
-                &mem_base[0], (1 << i), ((uint32_t *)mem_base)[0]);
-            __fatal_error(error_buffer);
+                &mem_base[0], (1 << i), ((volatile uint32_t *)mem_base)[0]);
+            MICROPY_BOARD_FATAL_ERROR(error_buffer);
             #endif
             return false;
         }
@@ -325,26 +346,28 @@ bool __attribute__((optimize("O0"))) sdram_test(bool exhaustive) {
     // Test address bus
     for (uint32_t i = 1; i < MICROPY_HW_SDRAM_SIZE; i <<= 1) {
         mem_base[i] = pattern;
+        __DSB();
         if (mem_base[i] != pattern) {
             #if MICROPY_HW_SDRAM_TEST_FAIL_ON_ERROR
             snprintf(error_buffer, sizeof(error_buffer),
                 "Address bus test failed at 0x%p expected 0x%x found 0x%x",
                 &mem_base[i], pattern, mem_base[i]);
-            __fatal_error(error_buffer);
+            MICROPY_BOARD_FATAL_ERROR(error_buffer);
             #endif
             return false;
         }
     }
 
-    // Check for aliasing (overlaping addresses)
+    // Check for aliasing (overlapping addresses)
     mem_base[0] = antipattern;
+    __DSB();
     for (uint32_t i = 1; i < MICROPY_HW_SDRAM_SIZE; i <<= 1) {
         if (mem_base[i] != pattern) {
             #if MICROPY_HW_SDRAM_TEST_FAIL_ON_ERROR
             snprintf(error_buffer, sizeof(error_buffer),
                 "Address bus overlap at 0x%p expected 0x%x found 0x%x",
                 &mem_base[i], pattern, mem_base[i]);
-            __fatal_error(error_buffer);
+            MICROPY_BOARD_FATAL_ERROR(error_buffer);
             #endif
             return false;
         }
@@ -356,16 +379,16 @@ bool __attribute__((optimize("O0"))) sdram_test(bool exhaustive) {
         // is enabled, it's not just writing and reading from cache.
         // Note: This test should also detect refresh rate issues.
         for (uint32_t i = 0; i < MICROPY_HW_SDRAM_SIZE; i++) {
-            mem_base[i] = pattern;
+            mem_base[i] = ((i % 2) ? pattern : antipattern);
         }
 
         for (uint32_t i = 0; i < MICROPY_HW_SDRAM_SIZE; i++) {
-            if (mem_base[i] != pattern) {
+            if (mem_base[i] != ((i % 2) ? pattern : antipattern)) {
                 #if MICROPY_HW_SDRAM_TEST_FAIL_ON_ERROR
                 snprintf(error_buffer, sizeof(error_buffer),
                     "Address bus slow test failed at 0x%p expected 0x%x found 0x%x",
-                    &mem_base[i], pattern, mem_base[i]);
-                __fatal_error(error_buffer);
+                    &mem_base[i], ((i % 2) ? pattern : antipattern), mem_base[i]);
+                MICROPY_BOARD_FATAL_ERROR(error_buffer);
                 #endif
                 return false;
             }

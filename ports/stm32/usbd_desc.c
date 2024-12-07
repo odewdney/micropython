@@ -8,7 +8,7 @@
   * @author  MCD Application Team
   * @version V1.0.1
   * @date    26-February-2014
-  * @brief   This file provides the USBD descriptors and string formating method.
+  * @brief   This file provides the USBD descriptors and string formatting method.
   ******************************************************************************
   * @attention
   *
@@ -86,7 +86,7 @@ void USBD_SetVIDPIDRelease(usbd_cdc_msc_hid_state_t *usbd, uint16_t vid, uint16_
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer
   */
-STATIC uint8_t *USBD_DeviceDescriptor(USBD_HandleTypeDef *pdev, uint16_t *length) {
+static uint8_t *USBD_DeviceDescriptor(USBD_HandleTypeDef *pdev, uint16_t *length) {
     uint8_t *dev_desc = ((usbd_cdc_msc_hid_state_t *)pdev->pClassData)->usbd_device_desc;
     *length = USB_LEN_DEV_DESC;
     return dev_desc;
@@ -98,7 +98,7 @@ STATIC uint8_t *USBD_DeviceDescriptor(USBD_HandleTypeDef *pdev, uint16_t *length
   * @param  length: Pointer to data length variable
   * @retval Pointer to descriptor buffer, or NULL if idx is invalid
   */
-STATIC uint8_t *USBD_StrDescriptor(USBD_HandleTypeDef *pdev, uint8_t idx, uint16_t *length) {
+static uint8_t *USBD_StrDescriptor(USBD_HandleTypeDef *pdev, uint8_t idx, uint16_t *length) {
     char str_buf[16];
     const char *str = NULL;
 
@@ -129,7 +129,7 @@ STATIC uint8_t *USBD_StrDescriptor(USBD_HandleTypeDef *pdev, uint8_t idx, uint16
             // the 96-bit unique ID, so for consistency we go with this algorithm.
             // You can see the serial number if you use: lsusb -v
             //
-            // See: https://my.st.com/52d187b7 for the algorithim used.
+            // See: https://my.st.com/52d187b7 for the algorithm used.
 
             uint8_t *id = (uint8_t *)MP_HAL_UNIQUE_ID_ADDRESS;
             snprintf(str_buf, sizeof(str_buf),
@@ -155,6 +155,24 @@ STATIC uint8_t *USBD_StrDescriptor(USBD_HandleTypeDef *pdev, uint8_t idx, uint16
                 str = MICROPY_HW_USB_INTERFACE_FS_STRING;
             }
             break;
+
+        #ifdef MICROPY_HW_USB_INTERFACE_CDC0_STRING
+        case USBD_IDX_INTERFACE_CDC0_STR:
+            str = MICROPY_HW_USB_INTERFACE_CDC0_STRING;
+            break;
+        #endif
+
+        #ifdef MICROPY_HW_USB_INTERFACE_CDC1_STRING
+        case USBD_IDX_INTERFACE_CDC1_STR:
+            str = MICROPY_HW_USB_INTERFACE_CDC1_STRING;
+            break;
+        #endif
+
+        #ifdef MICROPY_HW_USB_INTERFACE_CDC2_STRING
+        case USBD_IDX_INTERFACE_CDC2_STR:
+            str = MICROPY_HW_USB_INTERFACE_CDC2_STRING;
+            break;
+        #endif
 
         default:
             // invalid string index

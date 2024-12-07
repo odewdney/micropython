@@ -50,7 +50,7 @@ typedef struct _machine_temp_obj_t {
 
 /// \method __str__()
 /// Return a string describing the Temp object.
-STATIC void machine_temp_print(const mp_print_t *print, mp_obj_t o, mp_print_kind_t kind) {
+static void machine_temp_print(const mp_print_t *print, mp_obj_t o, mp_print_kind_t kind) {
     machine_temp_obj_t *self = o;
 
     (void)self;
@@ -61,7 +61,7 @@ STATIC void machine_temp_print(const mp_print_t *print, mp_obj_t o, mp_print_kin
 /******************************************************************************/
 /* MicroPython bindings for machine API                                       */
 
-STATIC mp_obj_t machine_temp_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
+static mp_obj_t machine_temp_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     static const mp_arg_t allowed_args[] = {
         { },
     };
@@ -70,9 +70,7 @@ STATIC mp_obj_t machine_temp_make_new(const mp_obj_type_t *type, size_t n_args, 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    machine_temp_obj_t *self = m_new_obj(machine_temp_obj_t);
-
-    self->base.type = &machine_temp_type;
+    machine_temp_obj_t *self = mp_obj_malloc(machine_temp_obj_t, &machine_temp_type);
 
     return MP_OBJ_FROM_PTR(self);
 }
@@ -91,35 +89,36 @@ int32_t temp_read(void) {
 
 /// \method read()
 /// Get temperature.
-STATIC mp_obj_t machine_temp_read(mp_uint_t n_args, const mp_obj_t *args) {
+static mp_obj_t machine_temp_read(mp_uint_t n_args, const mp_obj_t *args) {
 
-#if BLUETOOTH_SD
+    #if BLUETOOTH_SD
     if (BLUETOOTH_STACK_ENABLED() == 1) {
         int32_t temp;
         (void)sd_temp_get(&temp);
         return MP_OBJ_NEW_SMALL_INT(temp / 4); // resolution of 0.25 degree celsius
     }
-#endif // BLUETOOTH_SD
+    #endif // BLUETOOTH_SD
 
     return MP_OBJ_NEW_SMALL_INT(temp_read());
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_temp_read_obj, 0, 1, machine_temp_read);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mp_machine_temp_read_obj, 0, 1, machine_temp_read);
 
-STATIC const mp_rom_map_elem_t machine_temp_locals_dict_table[] = {
+static const mp_rom_map_elem_t machine_temp_locals_dict_table[] = {
     // instance methods
     // class methods
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&mp_machine_temp_read_obj) },
 };
 
-STATIC MP_DEFINE_CONST_DICT(machine_temp_locals_dict, machine_temp_locals_dict_table);
+static MP_DEFINE_CONST_DICT(machine_temp_locals_dict, machine_temp_locals_dict_table);
 
-const mp_obj_type_t machine_temp_type = {
-    { &mp_type_type },
-    .name = MP_QSTR_Temp,
-    .make_new = machine_temp_make_new,
-    .locals_dict = (mp_obj_dict_t*)&machine_temp_locals_dict,
-    .print = machine_temp_print,
-};
+MP_DEFINE_CONST_OBJ_TYPE(
+    machine_temp_type,
+    MP_QSTR_Temp,
+    MP_TYPE_FLAG_NONE,
+    make_new, machine_temp_make_new,
+    locals_dict, &machine_temp_locals_dict,
+    print, machine_temp_print
+    );
 
 #endif // MICROPY_PY_MACHINE_TEMP

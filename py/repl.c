@@ -33,7 +33,17 @@
 
 #if MICROPY_HELPER_REPL
 
-STATIC bool str_startswith_word(const char *str, const char *head) {
+#if MICROPY_PY_SYS_PS1_PS2
+const char *mp_repl_get_psx(unsigned int entry) {
+    if (mp_obj_is_str(MP_STATE_VM(sys_mutable)[entry])) {
+        return mp_obj_str_get_str(MP_STATE_VM(sys_mutable)[entry]);
+    } else {
+        return "";
+    }
+}
+#endif
+
+static bool str_startswith_word(const char *str, const char *head) {
     size_t i;
     for (i = 0; str[i] && head[i]; i++) {
         if (str[i] != head[i]) {
@@ -144,7 +154,7 @@ bool mp_repl_continue_with_input(const char *input) {
     return false;
 }
 
-STATIC bool test_qstr(mp_obj_t obj, qstr name) {
+static bool test_qstr(mp_obj_t obj, qstr name) {
     if (obj) {
         // try object member
         mp_obj_t dest[2];
@@ -152,12 +162,12 @@ STATIC bool test_qstr(mp_obj_t obj, qstr name) {
         return dest[0] != MP_OBJ_NULL;
     } else {
         // try builtin module
-        return mp_map_lookup((mp_map_t *)&mp_builtin_module_map,
-            MP_OBJ_NEW_QSTR(name), MP_MAP_LOOKUP);
+        return mp_map_lookup((mp_map_t *)&mp_builtin_module_map, MP_OBJ_NEW_QSTR(name), MP_MAP_LOOKUP) ||
+               mp_map_lookup((mp_map_t *)&mp_builtin_extensible_module_map, MP_OBJ_NEW_QSTR(name), MP_MAP_LOOKUP);
     }
 }
 
-STATIC const char *find_completions(const char *s_start, size_t s_len,
+static const char *find_completions(const char *s_start, size_t s_len,
     mp_obj_t obj, size_t *match_len, qstr *q_first, qstr *q_last) {
 
     const char *match_str = NULL;
@@ -197,7 +207,7 @@ STATIC const char *find_completions(const char *s_start, size_t s_len,
     return match_str;
 }
 
-STATIC void print_completions(const mp_print_t *print,
+static void print_completions(const mp_print_t *print,
     const char *s_start, size_t s_len,
     mp_obj_t obj, qstr q_first, qstr q_last) {
 
@@ -215,7 +225,6 @@ STATIC void print_completions(const mp_print_t *print,
                     gap += WORD_SLOT_LEN;
                 }
                 if (line_len + gap + d_len <= MAX_LINE_LEN) {
-                    // TODO optimise printing of gap?
                     for (int j = 0; j < gap; ++j) {
                         mp_print_str(print, " ");
                     }
@@ -303,10 +312,7 @@ size_t mp_repl_autocomplete(const char *str, size_t len, const mp_print_t *print
                 return sizeof(import_str) - 1 - s_len;
             }
         }
-        if (q_first == 0) {
-            *compl_str = "    ";
-            return s_len ? 0 : 4;
-        }
+        return 0;
     }
 
     // 1 match found, or multiple matches with a common prefix

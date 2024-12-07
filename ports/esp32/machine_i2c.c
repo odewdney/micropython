@@ -27,10 +27,12 @@
 #include "py/runtime.h"
 #include "py/mphal.h"
 #include "py/mperrno.h"
-#include "extmod/machine_i2c.h"
-#include "modmachine.h"
+#include "extmod/modmachine.h"
 
 #include "driver/i2c.h"
+#include "hal/i2c_ll.h"
+
+#if MICROPY_PY_MACHINE_I2C || MICROPY_PY_MACHINE_SOFTI2C
 
 #ifndef MICROPY_HW_I2C0_SCL
 #define MICROPY_HW_I2C0_SCL (GPIO_NUM_18)
@@ -47,7 +49,15 @@
 #endif
 #endif
 
-#define I2C_DEFAULT_TIMEOUT_US (10000) // 10ms
+#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S3
+#define I2C_SCLK_FREQ XTAL_CLK_FREQ
+#elif CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2
+#define I2C_SCLK_FREQ APB_CLK_FREQ
+#else
+#error "unsupported I2C for ESP32 SoC variant"
+#endif
+
+#define I2C_DEFAULT_TIMEOUT_US (50000) // 50ms
 
 typedef struct _machine_hw_i2c_obj_t {
     mp_obj_base_t base;
@@ -56,9 +66,9 @@ typedef struct _machine_hw_i2c_obj_t {
     gpio_num_t sda : 8;
 } machine_hw_i2c_obj_t;
 
-STATIC machine_hw_i2c_obj_t machine_hw_i2c_obj[I2C_NUM_MAX];
+static machine_hw_i2c_obj_t machine_hw_i2c_obj[I2C_NUM_MAX];
 
-STATIC void machine_hw_i2c_init(machine_hw_i2c_obj_t *self, uint32_t freq, uint32_t timeout_us, bool first_init) {
+static void machine_hw_i2c_init(machine_hw_i2c_obj_t *self, uint32_t freq, uint32_t timeout_us, bool first_init) {
     if (!first_init) {
         i2c_driver_delete(self->port);
     }
@@ -71,7 +81,8 @@ STATIC void machine_hw_i2c_init(machine_hw_i2c_obj_t *self, uint32_t freq, uint3
         .master.clk_speed = freq,
     };
     i2c_param_config(self->port, &conf);
-    i2c_set_timeout(self->port, I2C_APB_CLK_FREQ / 1000000 * timeout_us);
+    int timeout = I2C_SCLK_FREQ / 1000000 * timeout_us;
+    i2c_set_timeout(self->port, (timeout > I2C_LL_MAX_TIMEOUT) ? I2C_LL_MAX_TIMEOUT : timeout);
     i2c_driver_install(self->port, I2C_MODE_MASTER, 0, 0, 0);
 }
 
@@ -79,10 +90,20 @@ int machine_hw_i2c_transfer(mp_obj_base_t *self_in, uint16_t addr, size_t n, mp_
     machine_hw_i2c_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    int data_len = 0;
+
+    if (flags & MP_MACHINE_I2C_FLAG_WRITE1) {
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, addr << 1, true);
+        i2c_master_write(cmd, bufs->buf, bufs->len, true);
+        data_len += bufs->len;
+        --n;
+        ++bufs;
+    }
+
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, addr << 1 | (flags & MP_MACHINE_I2C_FLAG_READ), true);
 
-    int data_len = 0;
     for (; n--; ++bufs) {
         if (flags & MP_MACHINE_I2C_FLAG_READ) {
             i2c_master_read(cmd, bufs->buf, bufs->len, n == 0 ? I2C_MASTER_LAST_NACK : I2C_MASTER_ACK);
@@ -99,7 +120,7 @@ int machine_hw_i2c_transfer(mp_obj_base_t *self_in, uint16_t addr, size_t n, mp_
     }
 
     // TODO proper timeout
-    esp_err_t err = i2c_master_cmd_begin(self->port, cmd, 100 * (1 + data_len) / portTICK_RATE_MS);
+    esp_err_t err = i2c_master_cmd_begin(self->port, cmd, 100 * (1 + data_len) / portTICK_PERIOD_MS);
     i2c_cmd_link_delete(cmd);
 
     if (err == ESP_FAIL) {
@@ -116,12 +137,12 @@ int machine_hw_i2c_transfer(mp_obj_base_t *self_in, uint16_t addr, size_t n, mp_
 /******************************************************************************/
 // MicroPython bindings for machine API
 
-STATIC void machine_hw_i2c_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+static void machine_hw_i2c_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_hw_i2c_obj_t *self = MP_OBJ_TO_PTR(self_in);
     int h, l;
     i2c_get_period(self->port, &h, &l);
     mp_printf(print, "I2C(%u, scl=%u, sda=%u, freq=%u)",
-        self->port, self->scl, self->sda, I2C_APB_CLK_FREQ / (h + l));
+        self->port, self->scl, self->sda, I2C_SCLK_FREQ / (h + l));
 }
 
 mp_obj_t machine_hw_i2c_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -151,7 +172,7 @@ mp_obj_t machine_hw_i2c_make_new(const mp_obj_type_t *type, size_t n_args, size_
     bool first_init = false;
     if (self->base.type == NULL) {
         // Created for the first time, set default pins
-        self->base.type = &machine_hw_i2c_type;
+        self->base.type = &machine_i2c_type;
         self->port = i2c_id;
         if (self->port == I2C_NUM_0) {
             self->scl = MICROPY_HW_I2C0_SCL;
@@ -165,10 +186,10 @@ mp_obj_t machine_hw_i2c_make_new(const mp_obj_type_t *type, size_t n_args, size_
 
     // Set SCL/SDA pins if given
     if (args[ARG_scl].u_obj != MP_OBJ_NULL) {
-        self->scl = mp_hal_get_pin_obj(args[ARG_scl].u_obj);
+        self->scl = machine_pin_get_id(args[ARG_scl].u_obj);
     }
     if (args[ARG_sda].u_obj != MP_OBJ_NULL) {
-        self->sda = mp_hal_get_pin_obj(args[ARG_sda].u_obj);
+        self->sda = machine_pin_get_id(args[ARG_sda].u_obj);
     }
 
     // Initialise the I2C peripheral
@@ -177,15 +198,19 @@ mp_obj_t machine_hw_i2c_make_new(const mp_obj_type_t *type, size_t n_args, size_
     return MP_OBJ_FROM_PTR(self);
 }
 
-STATIC const mp_machine_i2c_p_t machine_hw_i2c_p = {
+static const mp_machine_i2c_p_t machine_hw_i2c_p = {
+    .transfer_supports_write1 = true,
     .transfer = machine_hw_i2c_transfer,
 };
 
-const mp_obj_type_t machine_hw_i2c_type = {
-    { &mp_type_type },
-    .name = MP_QSTR_I2C,
-    .print = machine_hw_i2c_print,
-    .make_new = machine_hw_i2c_make_new,
-    .protocol = &machine_hw_i2c_p,
-    .locals_dict = (mp_obj_dict_t *)&mp_machine_i2c_locals_dict,
-};
+MP_DEFINE_CONST_OBJ_TYPE(
+    machine_i2c_type,
+    MP_QSTR_I2C,
+    MP_TYPE_FLAG_NONE,
+    make_new, machine_hw_i2c_make_new,
+    print, machine_hw_i2c_print,
+    protocol, &machine_hw_i2c_p,
+    locals_dict, &mp_machine_i2c_locals_dict
+    );
+
+#endif

@@ -38,6 +38,7 @@ aes_s_box_table = bytes((
 ))
 # fmt: on
 
+
 # multiplication of polynomials modulo x^8 + x^4 + x^3 + x + 1 = 0x11b
 def aes_gf8_mul_2(x):
     if x & 0x80:
@@ -79,6 +80,7 @@ def aes_r_con(a):
 # provides such a sequence.  En/de-cryption is implemented here
 # using OCB, where the sequence is xored against the plaintext.
 # Care must be taken to (almost) always choose a different IV.
+
 
 # all inputs must be size 16
 def aes_add_round_key(state, w):
@@ -214,10 +216,7 @@ class AES:
 ##################################################################
 # test code
 
-try:
-    import utime as time
-except ImportError:
-    import time
+import time
 import _thread
 
 
@@ -267,10 +266,14 @@ def thread_entry(n_loop):
 if __name__ == "__main__":
     import sys
 
-    if sys.platform == "rp2":
+    if hasattr(sys, "settrace"):
+        # Builds with sys.settrace enabled are slow, so make the test short.
+        n_thread = 2
+        n_loop = 2
+    elif sys.platform == "rp2":
         n_thread = 1
         n_loop = 2
-    elif sys.platform in ("esp32", "pyboard"):
+    elif sys.platform in ("esp32", "pyboard", "zephyr"):
         n_thread = 2
         n_loop = 2
     else:
@@ -279,6 +282,6 @@ if __name__ == "__main__":
     for i in range(n_thread):
         _thread.start_new_thread(thread_entry, (n_loop,))
     thread_entry(n_loop)
-    while count.value < n_thread:
+    while count.value < n_thread + 1:
         time.sleep(1)
     print("done")

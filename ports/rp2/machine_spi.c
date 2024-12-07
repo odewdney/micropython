@@ -27,8 +27,7 @@
 #include "py/runtime.h"
 #include "py/mphal.h"
 #include "py/mperrno.h"
-#include "extmod/machine_spi.h"
-#include "modmachine.h"
+#include "extmod/modmachine.h"
 
 #include "hardware/spi.h"
 #include "hardware/dma.h"
@@ -39,21 +38,55 @@
 #define DEFAULT_SPI_BITS        (8)
 #define DEFAULT_SPI_FIRSTBIT    (SPI_MSB_FIRST)
 
+#ifdef MICROPY_HW_SPI_NO_DEFAULT_PINS
+
+// With no default SPI, need to require the pin args.
+#define MICROPY_HW_SPI0_SCK     (0)
+#define MICROPY_HW_SPI0_MOSI    (0)
+#define MICROPY_HW_SPI0_MISO    (0)
+#define MICROPY_HW_SPI1_SCK     (0)
+#define MICROPY_HW_SPI1_MOSI    (0)
+#define MICROPY_HW_SPI1_MISO    (0)
+#define MICROPY_SPI_PINS_ARG_OPTS MP_ARG_REQUIRED
+
+#else
+
+// Most boards do not require pin args.
+#define MICROPY_SPI_PINS_ARG_OPTS 0
+
 #ifndef MICROPY_HW_SPI0_SCK
+#if PICO_DEFAULT_SPI == 0
+#define MICROPY_HW_SPI0_SCK     (PICO_DEFAULT_SPI_SCK_PIN)
+#define MICROPY_HW_SPI0_MOSI    (PICO_DEFAULT_SPI_TX_PIN)
+#define MICROPY_HW_SPI0_MISO    (PICO_DEFAULT_SPI_RX_PIN)
+#else
 #define MICROPY_HW_SPI0_SCK     (6)
 #define MICROPY_HW_SPI0_MOSI    (7)
 #define MICROPY_HW_SPI0_MISO    (4)
 #endif
+#endif
 
 #ifndef MICROPY_HW_SPI1_SCK
+#if PICO_DEFAULT_SPI == 1
+#define MICROPY_HW_SPI1_SCK     (PICO_DEFAULT_SPI_SCK_PIN)
+#define MICROPY_HW_SPI1_MOSI    (PICO_DEFAULT_SPI_TX_PIN)
+#define MICROPY_HW_SPI1_MISO    (PICO_DEFAULT_SPI_RX_PIN)
+#else
 #define MICROPY_HW_SPI1_SCK     (10)
 #define MICROPY_HW_SPI1_MOSI    (11)
 #define MICROPY_HW_SPI1_MISO    (8)
 #endif
+#endif
 
+#endif
+
+// SPI0 can be GP{0..7,16..23}, SPI1 can be GP{8..15,24..29}.
 #define IS_VALID_PERIPH(spi, pin)   ((((pin) & 8) >> 3) == (spi))
+// GP{2,6,10,14,...}
 #define IS_VALID_SCK(spi, pin)      (((pin) & 3) == 2 && IS_VALID_PERIPH(spi, pin))
+// GP{3,7,11,15,...}
 #define IS_VALID_MOSI(spi, pin)     (((pin) & 3) == 3 && IS_VALID_PERIPH(spi, pin))
+// GP{0,4,8,10,...}
 #define IS_VALID_MISO(spi, pin)     (((pin) & 3) == 0 && IS_VALID_PERIPH(spi, pin))
 
 typedef struct _machine_spi_obj_t {
@@ -70,7 +103,7 @@ typedef struct _machine_spi_obj_t {
     uint32_t baudrate;
 } machine_spi_obj_t;
 
-STATIC machine_spi_obj_t machine_spi_obj[] = {
+static machine_spi_obj_t machine_spi_obj[] = {
     {
         {&machine_spi_type}, spi0, 0,
         DEFAULT_SPI_POLARITY, DEFAULT_SPI_PHASE, DEFAULT_SPI_BITS, DEFAULT_SPI_FIRSTBIT,
@@ -85,7 +118,7 @@ STATIC machine_spi_obj_t machine_spi_obj[] = {
     },
 };
 
-STATIC void machine_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+static void machine_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_spi_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(print, "SPI(%u, baudrate=%u, polarity=%u, phase=%u, bits=%u, sck=%u, mosi=%u, miso=%u)",
         self->spi_id, self->baudrate, self->polarity, self->phase, self->bits,
@@ -101,9 +134,9 @@ mp_obj_t machine_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
         { MP_QSTR_phase,    MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = DEFAULT_SPI_PHASE} },
         { MP_QSTR_bits,     MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = DEFAULT_SPI_BITS} },
         { MP_QSTR_firstbit, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = DEFAULT_SPI_FIRSTBIT} },
-        { MP_QSTR_sck,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
-        { MP_QSTR_mosi,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
-        { MP_QSTR_miso,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_sck,      MICROPY_SPI_PINS_ARG_OPTS | MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_mosi,     MICROPY_SPI_PINS_ARG_OPTS | MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
+        { MP_QSTR_miso,     MICROPY_SPI_PINS_ARG_OPTS | MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
     };
 
     // Parse the arguments.
@@ -164,7 +197,7 @@ mp_obj_t machine_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
     return MP_OBJ_FROM_PTR(self);
 }
 
-STATIC void machine_spi_init(mp_obj_base_t *self_in, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+static void machine_spi_init(mp_obj_base_t *self_in, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_baudrate, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
@@ -209,7 +242,7 @@ STATIC void machine_spi_init(mp_obj_base_t *self_in, size_t n_args, const mp_obj
     }
 }
 
-STATIC void machine_spi_transfer(mp_obj_base_t *self_in, size_t len, const uint8_t *src, uint8_t *dest) {
+static void machine_spi_transfer(mp_obj_base_t *self_in, size_t len, const uint8_t *src, uint8_t *dest) {
     machine_spi_obj_t *self = (machine_spi_obj_t *)self_in;
     // Use DMA for large transfers if channels are available
     const size_t dma_min_size_threshold = 32;
@@ -269,16 +302,44 @@ STATIC void machine_spi_transfer(mp_obj_base_t *self_in, size_t len, const uint8
     }
 }
 
-STATIC const mp_machine_spi_p_t machine_spi_p = {
+// Buffer protocol implementation for SPI.
+// The buffer represents the SPI data FIFO.
+static mp_int_t machine_spi_get_buffer(mp_obj_t o_in, mp_buffer_info_t *bufinfo, mp_uint_t flags) {
+    machine_spi_obj_t *self = MP_OBJ_TO_PTR(o_in);
+
+    bufinfo->len = 4;
+    bufinfo->typecode = 'I';
+    bufinfo->buf = (void *)&spi_get_hw(self->spi_inst)->dr;
+
+    return 0;
+}
+
+static const mp_machine_spi_p_t machine_spi_p = {
     .init = machine_spi_init,
     .transfer = machine_spi_transfer,
 };
 
-const mp_obj_type_t machine_spi_type = {
-    { &mp_type_type },
-    .name = MP_QSTR_SPI,
-    .print = machine_spi_print,
-    .make_new = machine_spi_make_new,
-    .protocol = &machine_spi_p,
-    .locals_dict = (mp_obj_dict_t *)&mp_machine_spi_locals_dict,
-};
+MP_DEFINE_CONST_OBJ_TYPE(
+    machine_spi_type,
+    MP_QSTR_SPI,
+    MP_TYPE_FLAG_NONE,
+    make_new, machine_spi_make_new,
+    print, machine_spi_print,
+    protocol, &machine_spi_p,
+    buffer, machine_spi_get_buffer,
+    locals_dict, &mp_machine_spi_locals_dict
+    );
+
+mp_obj_base_t *mp_hal_get_spi_obj(mp_obj_t o) {
+    if (mp_obj_is_type(o, &machine_spi_type)) {
+        return MP_OBJ_TO_PTR(o);
+    }
+    #if MICROPY_PY_MACHINE_SOFTSPI
+    else if (mp_obj_is_type(o, &mp_machine_soft_spi_type)) {
+        return MP_OBJ_TO_PTR(o);
+    }
+    #endif
+    else {
+        mp_raise_TypeError(MP_ERROR_TEXT("expecting an SPI object"));
+    }
+}

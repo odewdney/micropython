@@ -49,34 +49,34 @@ The :mod:`esp` module::
 Networking
 ----------
 
-The :mod:`network` module::
+The :class:`network.WLAN` class in the :mod:`network` module::
 
     import network
 
-    wlan = network.WLAN(network.STA_IF) # create station interface
+    wlan = network.WLAN(network.WLAN.IF_STA) # create station interface
     wlan.active(True)       # activate the interface
     wlan.scan()             # scan for access points
     wlan.isconnected()      # check if the station is connected to an AP
-    wlan.connect('essid', 'password') # connect to an AP
+    wlan.connect('ssid', 'key') # connect to an AP
     wlan.config('mac')      # get the interface's MAC address
-    wlan.ifconfig()         # get the interface's IP/netmask/gw/DNS addresses
+    wlan.ipconfig('addr4')  # get the interface's IPv4 addresses
 
-    ap = network.WLAN(network.AP_IF) # create access-point interface
+    ap = network.WLAN(network.WLAN.IF_AP) # create access-point interface
     ap.active(True)         # activate the interface
-    ap.config(essid='ESP-AP') # set the ESSID of the access point
+    ap.config(ssid='ESP-AP') # set the SSID of the access point
 
 A useful function for connecting to your local WiFi network is::
 
     def do_connect():
         import network
-        wlan = network.WLAN(network.STA_IF)
+        wlan = network.WLAN(network.WLAN.IF_STA)
         wlan.active(True)
         if not wlan.isconnected():
             print('connecting to network...')
-            wlan.connect('essid', 'password')
+            wlan.connect('ssid', 'key')
             while not wlan.isconnected():
                 pass
-        print('network config:', wlan.ifconfig())
+        print('network config:', wlan.ipconfig('addr4'))
 
 Once the network is established the :mod:`socket <socket>` module can be used
 to create and use TCP/UDP sockets as usual.
@@ -163,10 +163,10 @@ sys.stdin.read() if it's needed to read characters from the UART(0)
 while it's also used for the REPL (or detach, read, then reattach).
 When detached the UART(0) can be used for other purposes.
 
-If there are no objects in any of the dupterm slots when the REPL is
-started (on hard or soft reset) then UART(0) is automatically attached.
-Without this, the only way to recover a board without a REPL would be to
-completely erase and reflash (which would install the default boot.py which
+If there are no objects in any of the dupterm slots when the REPL is started (on
+:doc:`hard or soft reset </reference/reset_boot>`) then UART(0) is automatically
+attached. Without this, the only way to recover a board without a REPL would be
+to completely erase and reflash (which would install the default boot.py which
 attaches the REPL).
 
 To detach the REPL from UART0, use::
@@ -374,17 +374,13 @@ Use the ``neopixel`` module::
     np.write()              # write data to all pixels
     r, g, b = np[0]         # get first pixel colour
 
-For low-level driving of a NeoPixel::
-
-    import esp
-    esp.neopixel_write(pin, grb_buf, is800khz)
-
 .. Warning::
    By default ``NeoPixel`` is configured to control the more popular *800kHz*
    units. It is possible to use alternative timing to control other (typically
    400kHz) devices by passing ``timing=0`` when constructing the
    ``NeoPixel`` object.
 
+For low-level driving of a NeoPixel see `machine.bitstream`.
 
 APA102 driver
 -------------

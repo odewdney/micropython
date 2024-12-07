@@ -31,12 +31,25 @@ The MicroPython REPL is accessed via the USB serial port. Tab-completion is usef
 find out what methods an object has. Paste mode (ctrl-E) is useful to paste a
 large slab of Python code into the REPL.
 
-The :mod:`machine` module::
+The :mod:`machine` module:
+
+machine.freq() allows to change the MCU frequency and control the peripheral
+frequency for UART and SPI. Usage::
+
+    machine.freq(MCU_frequency[, peripheral_frequency=48_000_000])
+
+The MCU frequency can be set in a range from less than 48 MHz to about 250MHz.
+The default at boot time is 125 MHz. The peripheral frequency must be either
+48 MHz or identical to the MCU frequency, with 48 MHz as the default.
+If the peripheral frequency is changed, any already existing instance of
+UART and SPI will change it's baud rate and may have to be re-configured::
 
     import machine
 
     machine.freq()          # get the current frequency of the CPU
-    machine.freq(240000000) # set the CPU frequency to 240 MHz
+    machine.freq(240000000) # set the CPU frequency to 240 MHz and keep
+                            # the UART frequency at 48MHz
+    machine.freq(125000000, 125000000) # set the CPU and UART frequency to 125 MHz
 
 The :mod:`rp2` module::
 
@@ -92,6 +105,37 @@ Use the :ref:`machine.Pin <machine.Pin>` class::
     p4 = Pin(4, Pin.IN, Pin.PULL_UP) # enable internal pull-up resistor
     p5 = Pin(5, Pin.OUT, value=1) # set pin high on creation
 
+Programmable IO (PIO)
+---------------------
+
+PIO is useful to build low-level IO interfaces from scratch.  See the :mod:`rp2` module
+for detailed explanation of the assembly instructions.
+
+Example using PIO to blink an LED at 1Hz::
+
+    from machine import Pin
+    import rp2
+
+    @rp2.asm_pio(set_init=rp2.PIO.OUT_LOW)
+    def blink_1hz():
+        # Cycles: 1 + 7 + 32 * (30 + 1) = 1000
+        set(pins, 1)
+        set(x, 31)                  [6]
+        label("delay_high")
+        nop()                       [29]
+        jmp(x_dec, "delay_high")
+
+        # Cycles: 1 + 7 + 32 * (30 + 1) = 1000
+        set(pins, 0)
+        set(x, 31)                  [6]
+        label("delay_low")
+        nop()                       [29]
+        jmp(x_dec, "delay_low")
+
+    # Create and start a StateMachine with blink_1hz, outputting on Pin(25)
+    sm = rp2.StateMachine(0, blink_1hz, freq=2000, set_base=Pin(25))
+    sm.active(1)
+
 UART (serial bus)
 -----------------
 
@@ -115,19 +159,30 @@ See :ref:`machine.UART <machine.UART>`. ::
 PWM (pulse width modulation)
 ----------------------------
 
-There are 8 independent channels each of which have 2 outputs making it 16
-PWM channels in total which can be clocked from 7Hz to 125Mhz.
+There are 8 independent PWM generators called slices, which each have two
+channels making it 16 PWM channels in total which can be clocked from
+8Hz to 62.5Mhz at a machine.freq() of 125Mhz. The two channels of a
+slice run at the same frequency, but can have a different duty rate.
+The two channels are usually assigned to adjacent GPIO pin pairs with
+even/odd numbers. So GPIO0 and GPIO1 are at slice 0, GPIO2 and GPIO3
+are at slice 1, and so on. A certain channel can be assigned to
+different GPIO pins (see Pinout). For instance slice 0, channel A can be assigned
+to both GPIO0 and GPIO16.
 
 Use the ``machine.PWM`` class::
 
     from machine import Pin, PWM
 
-    pwm0 = PWM(Pin(0))      # create PWM object from a pin
-    pwm0.freq()             # get current frequency
-    pwm0.freq(1000)         # set frequency
-    pwm0.duty_u16()         # get current duty cycle, range 0-65535
-    pwm0.duty_u16(200)      # set duty cycle, range 0-65535
-    pwm0.deinit()           # turn off PWM on the pin
+    # create PWM object from a pin and set the frequency of slice 0
+    # and duty cycle for channel A
+    pwm0 = PWM(Pin(0), freq=2000, duty_u16=32768)
+    pwm0.freq()             # get the current frequency of slice 0
+    pwm0.freq(1000)         # set/change the frequency of slice 0
+    pwm0.duty_u16()         # get the current duty cycle of channel A, range 0-65535
+    pwm0.duty_u16(200)      # set the duty cycle of channel A, range 0-65535
+    pwm0.duty_u16(0)        # stop the output at channel A
+    print(pwm0)             # show the properties of the PWM object.
+    pwm0.deinit()           # turn off PWM of slice 0, stopping channels A and B
 
 ADC (analog to digital conversion)
 ----------------------------------
@@ -144,6 +199,14 @@ Use the :ref:`machine.ADC <machine.ADC>` class::
     from machine import ADC, Pin
     adc = ADC(Pin(26))     # create ADC object on ADC pin
     adc.read_u16()         # read value, 0-65535 across voltage range 0.0v - 3.3v
+
+The argument of the constructor ADC specifies either a Pin by number, name of as
+Pin object, or a channel number in the range 0 - 3 or ADC.CORE_TEMP for the
+internal temperature sensor. If a pin is specified,
+the pin is initialized in high-Z mode. If a channel number is used, the pin
+is not initialized and configuring is left to the user code. After hard reset,
+RP2040 pins operate in current sink mode at about 60µA. If the pin is not
+otherwise configured, that may lead to wrong ADC readings.
 
 Software SPI bus
 ----------------
@@ -219,6 +282,26 @@ has the same methods as software I2C above::
     i2c = I2C(0)   # default assignment: scl=Pin(9), sda=Pin(8)
     i2c = I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000)
 
+I2S bus
+-------
+
+See :ref:`machine.I2S <machine.I2S>`. ::
+
+    from machine import I2S, Pin
+
+    i2s = I2S(0, sck=Pin(16), ws=Pin(17), sd=Pin(18), mode=I2S.TX, bits=16, format=I2S.STEREO, rate=44100, ibuf=40000) # create I2S object
+    i2s.write(buf)             # write buffer of audio samples to I2S device
+
+    i2s = I2S(1, sck=Pin(0), ws=Pin(1), sd=Pin(2), mode=I2S.RX, bits=16, format=I2S.MONO, rate=22050, ibuf=40000) # create I2S object
+    i2s.readinto(buf)          # fill buffer with audio samples from I2S device
+
+The ``ws`` pin number must be one greater than the ``sck`` pin number.
+
+The I2S class is currently available as a Technical Preview.  During the preview period, feedback from
+users is encouraged.  Based on this feedback, the I2S class API and implementation may be changed.
+
+Two I2S buses are supported with id=0 and id=1.
+
 Real time clock (RTC)
 ---------------------
 
@@ -245,6 +328,7 @@ See :ref:`machine.WDT <machine.WDT>`. ::
     wdt = WDT(timeout=5000)
     wdt.feed()
 
+The maximum value for timeout is 8388 ms.
 
 OneWire driver
 --------------

@@ -32,11 +32,11 @@
 #endif
 
 #ifdef CONFIG_DISK_ACCESS
-#include <disk/disk_access.h>
+#include <zephyr/storage/disk_access.h>
 #endif
 
 #ifdef CONFIG_FLASH_MAP
-#include <storage/flash_map.h>
+#include <zephyr/storage/flash_map.h>
 #endif
 
 #ifdef CONFIG_DISK_ACCESS
@@ -47,15 +47,14 @@ typedef struct _zephyr_disk_access_obj_t {
     int block_count;
 } zephyr_disk_access_obj_t;
 
-STATIC void zephyr_disk_access_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+static void zephyr_disk_access_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     zephyr_disk_access_obj_t *self = self_in;
     mp_printf(print, "DiskAccess(%s)", self->pdrv);
 }
 
-STATIC mp_obj_t zephyr_disk_access_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+static mp_obj_t zephyr_disk_access_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     mp_arg_check_num(n_args, n_kw, 1, 1, false);
-    zephyr_disk_access_obj_t *self = m_new_obj(zephyr_disk_access_obj_t);
-    self->base.type = type;
+    zephyr_disk_access_obj_t *self = mp_obj_malloc(zephyr_disk_access_obj_t, type);
     self->pdrv = mp_obj_str_get_str(args[0]);
 
     if (disk_access_init(self->pdrv) != 0) {
@@ -73,7 +72,7 @@ STATIC mp_obj_t zephyr_disk_access_make_new(const mp_obj_type_t *type, size_t n_
     return MP_OBJ_FROM_PTR(self);
 }
 
-STATIC mp_obj_t zephyr_disk_access_readblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
+static mp_obj_t zephyr_disk_access_readblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
     zephyr_disk_access_obj_t *self = self_in;
     mp_buffer_info_t bufinfo;
     int ret;
@@ -82,9 +81,9 @@ STATIC mp_obj_t zephyr_disk_access_readblocks(mp_obj_t self_in, mp_obj_t block_n
     ret = disk_access_read(self->pdrv, bufinfo.buf, mp_obj_get_int(block_num), bufinfo.len / self->block_size);
     return MP_OBJ_NEW_SMALL_INT(ret);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(zephyr_disk_access_readblocks_obj, zephyr_disk_access_readblocks);
+static MP_DEFINE_CONST_FUN_OBJ_3(zephyr_disk_access_readblocks_obj, zephyr_disk_access_readblocks);
 
-STATIC mp_obj_t zephyr_disk_access_writeblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
+static mp_obj_t zephyr_disk_access_writeblocks(mp_obj_t self_in, mp_obj_t block_num, mp_obj_t buf) {
     zephyr_disk_access_obj_t *self = self_in;
     mp_buffer_info_t bufinfo;
     int ret;
@@ -93,9 +92,9 @@ STATIC mp_obj_t zephyr_disk_access_writeblocks(mp_obj_t self_in, mp_obj_t block_
     ret = disk_access_write(self->pdrv, bufinfo.buf, mp_obj_get_int(block_num), bufinfo.len / self->block_size);
     return MP_OBJ_NEW_SMALL_INT(ret);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(zephyr_disk_access_writeblocks_obj, zephyr_disk_access_writeblocks);
+static MP_DEFINE_CONST_FUN_OBJ_3(zephyr_disk_access_writeblocks_obj, zephyr_disk_access_writeblocks);
 
-STATIC mp_obj_t zephyr_disk_access_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t arg_in) {
+static mp_obj_t zephyr_disk_access_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t arg_in) {
     zephyr_disk_access_obj_t *self = self_in;
     mp_int_t cmd = mp_obj_get_int(cmd_in);
     int buf;
@@ -120,22 +119,23 @@ STATIC mp_obj_t zephyr_disk_access_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_o
             return MP_OBJ_NEW_SMALL_INT(-1);
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(zephyr_disk_access_ioctl_obj, zephyr_disk_access_ioctl);
+static MP_DEFINE_CONST_FUN_OBJ_3(zephyr_disk_access_ioctl_obj, zephyr_disk_access_ioctl);
 
-STATIC const mp_rom_map_elem_t zephyr_disk_access_locals_dict_table[] = {
+static const mp_rom_map_elem_t zephyr_disk_access_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readblocks), MP_ROM_PTR(&zephyr_disk_access_readblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_writeblocks), MP_ROM_PTR(&zephyr_disk_access_writeblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_ioctl), MP_ROM_PTR(&zephyr_disk_access_ioctl_obj) },
 };
-STATIC MP_DEFINE_CONST_DICT(zephyr_disk_access_locals_dict, zephyr_disk_access_locals_dict_table);
+static MP_DEFINE_CONST_DICT(zephyr_disk_access_locals_dict, zephyr_disk_access_locals_dict_table);
 
-const mp_obj_type_t zephyr_disk_access_type = {
-    { &mp_type_type },
-    .name = MP_QSTR_DiskAccess,
-    .print = zephyr_disk_access_print,
-    .make_new = zephyr_disk_access_make_new,
-    .locals_dict = (mp_obj_dict_t *)&zephyr_disk_access_locals_dict,
-};
+MP_DEFINE_CONST_OBJ_TYPE(
+    zephyr_disk_access_type,
+    MP_QSTR_DiskAccess,
+    MP_TYPE_FLAG_NONE,
+    make_new, zephyr_disk_access_make_new,
+    print, zephyr_disk_access_print,
+    locals_dict, &zephyr_disk_access_locals_dict
+    );
 #endif // CONFIG_DISK_ACCESS
 
 #ifdef CONFIG_FLASH_MAP
@@ -149,15 +149,14 @@ typedef struct _zephyr_flash_area_obj_t {
     uint8_t id;
 } zephyr_flash_area_obj_t;
 
-STATIC void zephyr_flash_area_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+static void zephyr_flash_area_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     zephyr_flash_area_obj_t *self = self_in;
     mp_printf(print, "FlashArea(%d)", self->id);
 }
 
-STATIC mp_obj_t zephyr_flash_area_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+static mp_obj_t zephyr_flash_area_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     mp_arg_check_num(n_args, n_kw, 2, 2, false);
-    zephyr_flash_area_obj_t *self = m_new_obj(zephyr_flash_area_obj_t);
-    self->base.type = type;
+    zephyr_flash_area_obj_t *self = mp_obj_malloc(zephyr_flash_area_obj_t, type);
     self->id = mp_obj_get_int(args[0]);
     self->block_size = mp_obj_get_int(args[1]);
 
@@ -174,7 +173,7 @@ STATIC mp_obj_t zephyr_flash_area_make_new(const mp_obj_type_t *type, size_t n_a
     return MP_OBJ_FROM_PTR(self);
 }
 
-STATIC mp_obj_t zephyr_flash_area_readblocks(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t zephyr_flash_area_readblocks(size_t n_args, const mp_obj_t *args) {
     zephyr_flash_area_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint32_t block_num = mp_obj_get_int(args[1]);
     off_t offset = block_num * self->block_size;
@@ -189,9 +188,9 @@ STATIC mp_obj_t zephyr_flash_area_readblocks(size_t n_args, const mp_obj_t *args
     ret = flash_area_read(self->area, offset, bufinfo.buf, bufinfo.len);
     return MP_OBJ_NEW_SMALL_INT(ret);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(zephyr_flash_area_readblocks_obj, 3, 4, zephyr_flash_area_readblocks);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(zephyr_flash_area_readblocks_obj, 3, 4, zephyr_flash_area_readblocks);
 
-STATIC mp_obj_t zephyr_flash_area_writeblocks(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t zephyr_flash_area_writeblocks(size_t n_args, const mp_obj_t *args) {
     zephyr_flash_area_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     uint32_t block_num = mp_obj_get_int(args[1]);
     off_t offset = block_num * self->block_size;
@@ -211,9 +210,9 @@ STATIC mp_obj_t zephyr_flash_area_writeblocks(size_t n_args, const mp_obj_t *arg
     ret = flash_area_write(self->area, offset, bufinfo.buf, bufinfo.len);
     return MP_OBJ_NEW_SMALL_INT(ret);
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(zephyr_flash_area_writeblocks_obj, 3, 4, zephyr_flash_area_writeblocks);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(zephyr_flash_area_writeblocks_obj, 3, 4, zephyr_flash_area_writeblocks);
 
-STATIC mp_obj_t zephyr_flash_area_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t arg_in) {
+static mp_obj_t zephyr_flash_area_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t arg_in) {
     zephyr_flash_area_obj_t *self = self_in;
     mp_int_t cmd = mp_obj_get_int(cmd_in);
     mp_int_t block_num = mp_obj_get_int(arg_in);
@@ -239,23 +238,24 @@ STATIC mp_obj_t zephyr_flash_area_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_ob
             return MP_OBJ_NEW_SMALL_INT(-1);
     }
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_3(zephyr_flash_area_ioctl_obj, zephyr_flash_area_ioctl);
+static MP_DEFINE_CONST_FUN_OBJ_3(zephyr_flash_area_ioctl_obj, zephyr_flash_area_ioctl);
 
-STATIC const mp_rom_map_elem_t zephyr_flash_area_locals_dict_table[] = {
+static const mp_rom_map_elem_t zephyr_flash_area_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readblocks), MP_ROM_PTR(&zephyr_flash_area_readblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_writeblocks), MP_ROM_PTR(&zephyr_flash_area_writeblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_ioctl), MP_ROM_PTR(&zephyr_flash_area_ioctl_obj) },
-    #if FLASH_AREA_LABEL_EXISTS(storage)
-    { MP_ROM_QSTR(MP_QSTR_STORAGE), MP_ROM_INT(FLASH_AREA_ID(storage)) },
+    #if FIXED_PARTITION_EXISTS(storage_partition)
+    { MP_ROM_QSTR(MP_QSTR_STORAGE), MP_ROM_INT(FIXED_PARTITION_ID(storage_partition)) },
     #endif
 };
-STATIC MP_DEFINE_CONST_DICT(zephyr_flash_area_locals_dict, zephyr_flash_area_locals_dict_table);
+static MP_DEFINE_CONST_DICT(zephyr_flash_area_locals_dict, zephyr_flash_area_locals_dict_table);
 
-const mp_obj_type_t zephyr_flash_area_type = {
-    { &mp_type_type },
-    .name = MP_QSTR_FlashArea,
-    .print = zephyr_flash_area_print,
-    .make_new = zephyr_flash_area_make_new,
-    .locals_dict = (mp_obj_dict_t *)&zephyr_flash_area_locals_dict,
-};
+MP_DEFINE_CONST_OBJ_TYPE(
+    zephyr_flash_area_type,
+    MP_QSTR_FlashArea,
+    MP_TYPE_FLAG_NONE,
+    make_new, zephyr_flash_area_make_new,
+    print, zephyr_flash_area_print,
+    locals_dict, &zephyr_flash_area_locals_dict
+    );
 #endif // CONFIG_FLASH_MAP

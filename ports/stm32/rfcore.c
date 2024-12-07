@@ -105,7 +105,7 @@ typedef struct _tl_list_node_t {
 } tl_list_node_t;
 
 typedef struct _parse_hci_info_t {
-    int (*cb_fun)(void *, const uint8_t *, size_t);
+    rfcore_ble_msg_callback_t cb_fun;
     void *cb_env;
     bool was_hci_reset_evt;
 } parse_hci_info_t;
@@ -195,33 +195,33 @@ typedef struct __attribute__((packed)) _ipcc_ref_table_t {
 // The stm32wb55xg.ld script puts .bss.ipcc_mem_* into SRAM2A and .bss_ipcc_membuf_* into SRAM2B.
 // It also leaves 64 bytes at the start of SRAM2A for the ref table.
 
-STATIC ipcc_device_info_table_t ipcc_mem_dev_info_tab; // mem1
-STATIC ipcc_ble_table_t ipcc_mem_ble_tab; // mem1
-STATIC ipcc_sys_table_t ipcc_mem_sys_tab; // mem1
-STATIC ipcc_mem_manager_table_t ipcc_mem_memmgr_tab; // mem1
+static ipcc_device_info_table_t ipcc_mem_dev_info_tab; // mem1
+static ipcc_ble_table_t ipcc_mem_ble_tab; // mem1
+static ipcc_sys_table_t ipcc_mem_sys_tab; // mem1
+static ipcc_mem_manager_table_t ipcc_mem_memmgr_tab; // mem1
 
-STATIC uint8_t ipcc_membuf_sys_cmd_buf[272];  // mem2
-STATIC tl_list_node_t ipcc_mem_sys_queue; // mem1
+static uint8_t ipcc_membuf_sys_cmd_buf[272];  // mem2
+static tl_list_node_t ipcc_mem_sys_queue; // mem1
 
-STATIC tl_list_node_t ipcc_mem_memmgr_free_buf_queue; // mem1
-STATIC uint8_t ipcc_membuf_memmgr_ble_spare_evt_buf[272]; // mem2
-STATIC uint8_t ipcc_membuf_memmgr_sys_spare_evt_buf[272]; // mem2
-STATIC uint8_t ipcc_membuf_memmgr_evt_pool[6 * 272];  // mem2
+static tl_list_node_t ipcc_mem_memmgr_free_buf_queue; // mem1
+static uint8_t ipcc_membuf_memmgr_ble_spare_evt_buf[272]; // mem2
+static uint8_t ipcc_membuf_memmgr_sys_spare_evt_buf[272]; // mem2
+static uint8_t ipcc_membuf_memmgr_evt_pool[6 * 272];  // mem2
 
-STATIC uint8_t ipcc_membuf_ble_cmd_buf[272]; // mem2
-STATIC uint8_t ipcc_membuf_ble_cs_buf[272]; // mem2
-STATIC tl_list_node_t ipcc_mem_ble_evt_queue; // mem1
-STATIC uint8_t ipcc_membuf_ble_hci_acl_data_buf[272]; // mem2
+static uint8_t ipcc_membuf_ble_cmd_buf[272]; // mem2
+static uint8_t ipcc_membuf_ble_cs_buf[272]; // mem2
+static tl_list_node_t ipcc_mem_ble_evt_queue; // mem1
+static uint8_t ipcc_membuf_ble_hci_acl_data_buf[272]; // mem2
 
 /******************************************************************************/
 // Transport layer linked list
 
-STATIC void tl_list_init(volatile tl_list_node_t *n) {
+static void tl_list_init(volatile tl_list_node_t *n) {
     n->next = n;
     n->prev = n;
 }
 
-STATIC volatile tl_list_node_t *tl_list_unlink(volatile tl_list_node_t *n) {
+static volatile tl_list_node_t *tl_list_unlink(volatile tl_list_node_t *n) {
     volatile tl_list_node_t *next = n->next;
     volatile tl_list_node_t *prev = n->prev;
     prev->next = next;
@@ -229,7 +229,7 @@ STATIC volatile tl_list_node_t *tl_list_unlink(volatile tl_list_node_t *n) {
     return next;
 }
 
-STATIC void tl_list_append(volatile tl_list_node_t *head, volatile tl_list_node_t *n) {
+static void tl_list_append(volatile tl_list_node_t *head, volatile tl_list_node_t *n) {
     n->next = head;
     n->prev = head->prev;
     head->prev->next = n;
@@ -239,7 +239,7 @@ STATIC void tl_list_append(volatile tl_list_node_t *head, volatile tl_list_node_
 /******************************************************************************/
 // IPCC interface
 
-STATIC volatile ipcc_ref_table_t *get_buffer_table(void) {
+static volatile ipcc_ref_table_t *get_buffer_table(void) {
     // The IPCCDBA option bytes must not be changed without
     // making a corresponding change to the linker script.
     return (volatile ipcc_ref_table_t *)(SRAM2A_BASE + LL_FLASH_GetIPCCBufferAddr() * 4);
@@ -299,9 +299,9 @@ void ipcc_init(uint32_t irq_pri) {
 // In either case we detect the failure response and inject this response
 // instead (which is HCI_EVENT_COMMAND_COMPLETE for OCF_CB_SET_EVENT_MASK2
 // with status=0).
-STATIC const uint8_t set_event_event_mask2_fix_payload[] = { 0x04, 0x0e, 0x04, 0x01, 0x63, 0x0c, 0x00 };
+static const uint8_t set_event_event_mask2_fix_payload[] = { 0x04, 0x0e, 0x04, 0x01, 0x63, 0x0c, 0x00 };
 
-STATIC size_t tl_parse_hci_msg(const uint8_t *buf, parse_hci_info_t *parse) {
+static size_t tl_parse_hci_msg(const uint8_t *buf, parse_hci_info_t *parse) {
     const char *info;
     #if HCI_TRACE
     int applied_set_event_event_mask2_fix = 0;
@@ -408,11 +408,12 @@ STATIC size_t tl_parse_hci_msg(const uint8_t *buf, parse_hci_info_t *parse) {
     return len;
 }
 
-STATIC void tl_process_msg(volatile tl_list_node_t *head, unsigned int ch, parse_hci_info_t *parse) {
+static size_t tl_process_msg(volatile tl_list_node_t *head, unsigned int ch, parse_hci_info_t *parse) {
     volatile tl_list_node_t *cur = head->next;
     bool added_to_free_queue = false;
+    size_t len = 0;
     while (cur != head) {
-        tl_parse_hci_msg((uint8_t *)cur->body, parse);
+        len += tl_parse_hci_msg((uint8_t *)cur->body, parse);
 
         volatile tl_list_node_t *next = tl_list_unlink(cur);
 
@@ -436,25 +437,28 @@ STATIC void tl_process_msg(volatile tl_list_node_t *head, unsigned int ch, parse
         // Notify change in free pool.
         LL_C1_IPCC_SetFlag_CHx(IPCC, IPCC_CH_MM);
     }
+    return len;
 }
 
 // Only call this when IRQs are disabled on this channel.
-STATIC void tl_check_msg(volatile tl_list_node_t *head, unsigned int ch, parse_hci_info_t *parse) {
+static size_t tl_check_msg(volatile tl_list_node_t *head, unsigned int ch, parse_hci_info_t *parse) {
+    size_t len = 0;
     if (LL_C2_IPCC_IsActiveFlag_CHx(IPCC, ch)) {
         // Process new data.
-        tl_process_msg(head, ch, parse);
+        len = tl_process_msg(head, ch, parse);
 
         // Clear receive channel (allows RF core to send more data to us).
         LL_C1_IPCC_ClearFlag_CHx(IPCC, ch);
 
         if (ch == IPCC_CH_BLE) {
-            // Renable IRQs for BLE now that we've cleared the flag.
+            // Re-enable IRQs for BLE now that we've cleared the flag.
             LL_C1_IPCC_EnableReceiveChannel(IPCC, IPCC_CH_BLE);
         }
     }
+    return len;
 }
 
-STATIC void tl_hci_cmd(uint8_t *cmd, unsigned int ch, uint8_t hdr, uint16_t opcode, const uint8_t *buf, size_t len) {
+static void tl_hci_cmd(uint8_t *cmd, unsigned int ch, uint8_t hdr, uint16_t opcode, const uint8_t *buf, size_t len) {
     tl_list_node_t *n = (tl_list_node_t *)cmd;
     n->next = NULL;
     n->prev = NULL;
@@ -476,7 +480,7 @@ STATIC void tl_hci_cmd(uint8_t *cmd, unsigned int ch, uint8_t hdr, uint16_t opco
     LL_C1_IPCC_SetFlag_CHx(IPCC, ch);
 }
 
-STATIC ssize_t tl_sys_wait_ack(const uint8_t *buf, mp_int_t timeout_ms) {
+static ssize_t tl_sys_wait_ack(const uint8_t *buf, mp_int_t timeout_ms) {
     uint32_t t0 = mp_hal_ticks_ms();
 
     timeout_ms = MAX(SYS_ACK_TIMEOUT_MS, timeout_ms);
@@ -494,12 +498,12 @@ STATIC ssize_t tl_sys_wait_ack(const uint8_t *buf, mp_int_t timeout_ms) {
     return (ssize_t)tl_parse_hci_msg(buf, NULL);
 }
 
-STATIC ssize_t tl_sys_hci_cmd_resp(uint16_t opcode, const uint8_t *buf, size_t len, mp_int_t timeout_ms) {
+static ssize_t tl_sys_hci_cmd_resp(uint16_t opcode, const uint8_t *buf, size_t len, mp_int_t timeout_ms) {
     tl_hci_cmd(ipcc_membuf_sys_cmd_buf, IPCC_CH_SYS, 0x10, opcode, buf, len);
     return tl_sys_wait_ack(ipcc_membuf_sys_cmd_buf, timeout_ms);
 }
 
-STATIC int tl_ble_wait_resp(void) {
+static int tl_ble_wait_resp(void) {
     uint32_t t0 = mp_hal_ticks_ms();
     while (!LL_C2_IPCC_IsActiveFlag_CHx(IPCC, IPCC_CH_BLE)) {
         if (mp_hal_ticks_ms() - t0 > BLE_ACK_TIMEOUT_MS) {
@@ -514,7 +518,7 @@ STATIC int tl_ble_wait_resp(void) {
 }
 
 // Synchronously send a BLE command.
-STATIC void tl_ble_hci_cmd_resp(uint16_t opcode, const uint8_t *buf, size_t len) {
+static void tl_ble_hci_cmd_resp(uint16_t opcode, const uint8_t *buf, size_t len) {
     // Poll for completion rather than wait for IRQ->scheduler.
     LL_C1_IPCC_DisableReceiveChannel(IPCC, IPCC_CH_BLE);
     tl_hci_cmd(ipcc_membuf_ble_cmd_buf, IPCC_CH_BLE, HCI_KIND_BT_CMD, opcode, buf, len);
@@ -530,11 +534,26 @@ void rfcore_init(void) {
     // Ensure LSE is running
     rtc_init_finalise();
 
-    // Select LSE as RF wakeup source
+    // In case we're waking from deepsleep, enforce core synchronisation
+    __HAL_RCC_HSEM_CLK_ENABLE();
+    while (LL_HSEM_1StepLock(HSEM, CFG_HW_PWR_STANDBY_SEMID)) {
+    }
+
+    // Set the wakeup source to LSE or fall back to use HSE
+    #if MICROPY_HW_RTC_USE_LSE
     RCC->CSR = (RCC->CSR & ~RCC_CSR_RFWKPSEL) | 1 << RCC_CSR_RFWKPSEL_Pos;
+    #else
+    RCC->CSR = (RCC->CSR & ~RCC_CSR_RFWKPSEL) | 3 << RCC_CSR_RFWKPSEL_Pos;
+    #endif
 
     // Initialise IPCC and shared memory structures
     ipcc_init(IRQ_PRI_SDIO);
+
+    // When the device is out of standby, it is required to use the EXTI mechanism to wakeup CPU2
+    LL_C2_EXTI_EnableEvent_32_63(LL_EXTI_LINE_41);
+    LL_EXTI_EnableRisingTrig_32_63(LL_EXTI_LINE_41);
+
+    LL_HSEM_ReleaseLock(HSEM, CFG_HW_PWR_STANDBY_SEMID, 0);
 
     // Boot the second core
     __SEV();
@@ -585,16 +604,36 @@ static const struct {
 void rfcore_ble_init(void) {
     DEBUG_printf("rfcore_ble_init\n");
 
-    // Clear any outstanding messages from ipcc_init.
-    tl_check_msg(&ipcc_mem_sys_queue, IPCC_CH_SYS, NULL);
-
     // Configure and reset the BLE controller.
-    tl_sys_hci_cmd_resp(HCI_OPCODE(OGF_VENDOR, OCF_BLE_INIT), (const uint8_t *)&ble_init_params, sizeof(ble_init_params), 0);
-    tl_ble_hci_cmd_resp(HCI_OPCODE(0x03, 0x0003), NULL, 0);
+    if (!rfcore_ble_reset()) {
+        // ble init can fail if core2 has previously locked up. Reset HSI & rfcore to retry.
+        LL_RCC_HSI_Disable();
+        mp_hal_delay_ms(100);
+        LL_RCC_HSI_Enable();
+
+        rfcore_init();
+        rfcore_ble_reset();
+    }
 
     // Enable PES rather than SEM7 to moderate flash access between the cores.
     uint8_t buf = 0; // FLASH_ACTIVITY_CONTROL_PES
     tl_sys_hci_cmd_resp(HCI_OPCODE(OGF_VENDOR, OCF_C2_SET_FLASH_ACTIVITY_CONTROL), &buf, 1, 0);
+}
+
+bool rfcore_ble_reset(void) {
+    DEBUG_printf("rfcore_ble_reset\n");
+
+    // Clear any outstanding messages from ipcc_init.
+    tl_check_msg(&ipcc_mem_sys_queue, IPCC_CH_SYS, NULL);
+
+    // Configure and reset the BLE controller.
+    int ret = tl_sys_hci_cmd_resp(HCI_OPCODE(OGF_VENDOR, OCF_BLE_INIT), (const uint8_t *)&ble_init_params, sizeof(ble_init_params), 500);
+
+    if (ret == -MP_ETIMEDOUT) {
+        return false;
+    }
+    tl_ble_hci_cmd_resp(HCI_OPCODE(0x03, 0x0003), NULL, 0);
+    return true;
 }
 
 void rfcore_ble_hci_cmd(size_t len, const uint8_t *src) {
@@ -611,24 +650,6 @@ void rfcore_ble_hci_cmd(size_t len, const uint8_t *src) {
     tl_list_node_t *n;
     uint32_t ch;
     if (src[0] == HCI_KIND_BT_CMD) {
-        // The STM32WB has a problem when address resolution is enabled: under certain
-        // conditions the MCU can get into a state where it draws an additional 10mA
-        // or so and eventually ends up with a broken BLE RX path in the silicon.  A
-        // simple way to reproduce this is to enable address resolution (which is the
-        // default for NimBLE) and start the device advertising.  If there is enough
-        // BLE activity in the vicinity then the device will at some point enter the
-        // bad state and, if left long enough, will have permanent BLE RX damage.
-        //
-        // STMicroelectronics are aware of this issue.  The only known workaround at
-        // this stage is to not enable address resolution.  We do that here by
-        // intercepting any command that enables address resolution and convert it
-        // into a command that disables address resolution.
-        //
-        // OGF=0x08 OCF=0x002d HCI_LE_Set_Address_Resolution_Enable
-        if (len == 5 && memcmp(src + 1, "\x2d\x20\x01\x01", 4) == 0) {
-            src = (const uint8_t *)"\x01\x2d\x20\x01\x00";
-        }
-
         n = (tl_list_node_t *)&ipcc_membuf_ble_cmd_buf[0];
         ch = IPCC_CH_BLE;
     } else if (src[0] == HCI_KIND_BT_ACL) {
@@ -661,9 +682,9 @@ void rfcore_ble_hci_cmd(size_t len, const uint8_t *src) {
     LL_C1_IPCC_SetFlag_CHx(IPCC, ch);
 }
 
-void rfcore_ble_check_msg(int (*cb)(void *, const uint8_t *, size_t), void *env) {
+size_t rfcore_ble_check_msg(rfcore_ble_msg_callback_t cb, void *env) {
     parse_hci_info_t parse = { cb, env, false };
-    tl_check_msg(&ipcc_mem_ble_evt_queue, IPCC_CH_BLE, &parse);
+    size_t len = tl_check_msg(&ipcc_mem_ble_evt_queue, IPCC_CH_BLE, &parse);
 
     // Intercept HCI_Reset events and reconfigure the controller following the reset
     if (parse.was_hci_reset_evt) {
@@ -678,6 +699,7 @@ void rfcore_ble_check_msg(int (*cb)(void *, const uint8_t *, size_t), void *env)
         SWAP_UINT8(buf[4], buf[5]);
         tl_ble_hci_cmd_resp(HCI_OPCODE(OGF_VENDOR, OCF_WRITE_CONFIG), buf, 8); // set BDADDR
     }
+    return len;
 }
 
 // "level" is 0x00-0x1f, ranging from -40 dBm to +6 dBm (not linear).
@@ -725,19 +747,19 @@ void IPCC_C1_RX_IRQHandler(void) {
 /******************************************************************************/
 // MicroPython bindings
 
-STATIC mp_obj_t rfcore_status(void) {
+static mp_obj_t rfcore_status(void) {
     return mp_obj_new_int_from_uint(ipcc_mem_dev_info_tab.fus.table_state);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(rfcore_status_obj, rfcore_status);
 
-STATIC mp_obj_t get_version_tuple(uint32_t data) {
+static mp_obj_t get_version_tuple(uint32_t data) {
     mp_obj_t items[] = {
         MP_OBJ_NEW_SMALL_INT(data >> 24), MP_OBJ_NEW_SMALL_INT(data >> 16 & 0xFF), MP_OBJ_NEW_SMALL_INT(data >> 8 & 0xFF), MP_OBJ_NEW_SMALL_INT(data >> 4 & 0xF), MP_OBJ_NEW_SMALL_INT(data & 0xF)
     };
     return mp_obj_new_tuple(5, items);
 }
 
-STATIC mp_obj_t rfcore_fw_version(mp_obj_t fw_id_in) {
+static mp_obj_t rfcore_fw_version(mp_obj_t fw_id_in) {
     if (ipcc_mem_dev_info_tab.fus.table_state == MAGIC_IPCC_MEM_INCORRECT) {
         mp_raise_OSError(MP_EINVAL);
     }
@@ -755,7 +777,7 @@ STATIC mp_obj_t rfcore_fw_version(mp_obj_t fw_id_in) {
 }
 MP_DEFINE_CONST_FUN_OBJ_1(rfcore_fw_version_obj, rfcore_fw_version);
 
-STATIC mp_obj_t rfcore_sys_hci(size_t n_args, const mp_obj_t *args) {
+static mp_obj_t rfcore_sys_hci(size_t n_args, const mp_obj_t *args) {
     if (ipcc_mem_dev_info_tab.fus.table_state == MAGIC_IPCC_MEM_INCORRECT) {
         mp_raise_OSError(MP_EINVAL);
     }
