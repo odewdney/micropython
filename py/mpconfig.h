@@ -30,7 +30,7 @@
 // as well as a fallback to generate MICROPY_GIT_TAG if the git repo or tags
 // are unavailable.
 #define MICROPY_VERSION_MAJOR 1
-#define MICROPY_VERSION_MINOR 25
+#define MICROPY_VERSION_MINOR 26
 #define MICROPY_VERSION_MICRO 0
 #define MICROPY_VERSION_PRERELEASE 1
 
@@ -342,6 +342,11 @@
 #define MICROPY_PERSISTENT_CODE_SAVE_FILE (0)
 #endif
 
+// Whether to support converting functions to persistent code (bytes)
+#ifndef MICROPY_PERSISTENT_CODE_SAVE_FUN
+#define MICROPY_PERSISTENT_CODE_SAVE_FUN (MICROPY_PY_MARSHAL)
+#endif
+
 // Whether generated code can persist independently of the VM/runtime instance
 // This is enabled automatically when needed by other features
 #ifndef MICROPY_PERSISTENT_CODE
@@ -401,6 +406,11 @@
 #define MICROPY_EMIT_INLINE_XTENSA (0)
 #endif
 
+// Whether to support uncommon Xtensa inline assembler opcodes
+#ifndef MICROPY_EMIT_INLINE_XTENSA_UNCOMMON_OPCODES
+#define MICROPY_EMIT_INLINE_XTENSA_UNCOMMON_OPCODES (0)
+#endif
+
 // Whether to emit Xtensa-Windowed native code
 #ifndef MICROPY_EMIT_XTENSAWIN
 #define MICROPY_EMIT_XTENSAWIN (0)
@@ -409,6 +419,16 @@
 // Whether to emit RISC-V RV32 native code
 #ifndef MICROPY_EMIT_RV32
 #define MICROPY_EMIT_RV32 (0)
+#endif
+
+// Whether to enable the RISC-V RV32 inline assembler
+#ifndef MICROPY_EMIT_INLINE_RV32
+#define MICROPY_EMIT_INLINE_RV32 (0)
+#endif
+
+// Whether to enable the human-readable native instructions emitter
+#ifndef MICROPY_EMIT_NATIVE_DEBUG
+#define MICROPY_EMIT_NATIVE_DEBUG (0)
 #endif
 
 // Convenience definition for whether any native emitter is enabled
@@ -420,7 +440,7 @@
 #define MICROPY_EMIT_NATIVE_PRELUDE_SEPARATE_FROM_MACHINE_CODE (MICROPY_EMIT_XTENSAWIN)
 
 // Convenience definition for whether any inline assembler emitter is enabled
-#define MICROPY_EMIT_INLINE_ASM (MICROPY_EMIT_INLINE_THUMB || MICROPY_EMIT_INLINE_XTENSA)
+#define MICROPY_EMIT_INLINE_ASM (MICROPY_EMIT_INLINE_THUMB || MICROPY_EMIT_INLINE_XTENSA || MICROPY_EMIT_INLINE_RV32)
 
 // Convenience definition for whether any native or inline assembler emitter is enabled
 #define MICROPY_EMIT_MACHINE_CODE (MICROPY_EMIT_NATIVE || MICROPY_EMIT_INLINE_ASM)
@@ -873,6 +893,64 @@ typedef double mp_float_t;
 #define MICROPY_FULL_CHECKS (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_CORE_FEATURES)
 #endif
 
+// Ports can choose to use timestamps based on 2000-01-01 or 1970-01-01
+// Default is timestamps based on 2000-01-01
+#if !defined(MICROPY_EPOCH_IS_2000) && !defined(MICROPY_EPOCH_IS_1970)
+#define MICROPY_EPOCH_IS_2000 (1)
+#define MICROPY_EPOCH_IS_1970 (0)
+#elif !defined(MICROPY_EPOCH_IS_1970)
+#define MICROPY_EPOCH_IS_1970 (1 - (MICROPY_EPOCH_IS_2000))
+#elif !defined(MICROPY_EPOCH_IS_2000)
+#define MICROPY_EPOCH_IS_2000 (1 - (MICROPY_EPOCH_IS_1970))
+#endif
+
+// To maintain reasonable compatibility with CPython on embedded systems,
+// and avoid breaking anytime soon, time functions are defined to work
+// at least between 1970 and 2099 (included) on any machine.
+//
+// Specific ports can enable extended date support
+// - after 2099 using MICROPY_TIME_SUPPORT_Y2100_AND_BEYOND
+// - before 1970 using MICROPY_TIME_SUPPORT_Y1969_AND_BEFORE
+// The largest possible range is year 1600 to year 3000
+//
+// By default, extended date support is only enabled for machines using 64 bit pointers,
+// but it can be enabled by specific ports
+#ifndef MICROPY_TIME_SUPPORT_Y1969_AND_BEFORE
+#if MP_SSIZE_MAX > 2147483647
+#define MICROPY_TIME_SUPPORT_Y1969_AND_BEFORE (1)
+#else
+#define MICROPY_TIME_SUPPORT_Y1969_AND_BEFORE (0)
+#endif
+#endif
+
+// When support for dates <1970 is enabled, supporting >=2100 does not cost anything
+#ifndef MICROPY_TIME_SUPPORT_Y2100_AND_BEYOND
+#define MICROPY_TIME_SUPPORT_Y2100_AND_BEYOND (MICROPY_TIME_SUPPORT_Y1969_AND_BEFORE)
+#endif
+
+// The type to be used to represent platform-specific timestamps depends on the choices above
+#define MICROPY_TIMESTAMP_IMPL_LONG_LONG (0)
+#define MICROPY_TIMESTAMP_IMPL_UINT (1)
+#define MICROPY_TIMESTAMP_IMPL_TIME_T (2)
+
+#ifndef MICROPY_TIMESTAMP_IMPL
+#if MICROPY_TIME_SUPPORT_Y2100_AND_BEYOND || MICROPY_TIME_SUPPORT_Y1969_AND_BEFORE || MICROPY_EPOCH_IS_2000
+#define MICROPY_TIMESTAMP_IMPL (MICROPY_TIMESTAMP_IMPL_LONG_LONG)
+#else
+#define MICROPY_TIMESTAMP_IMPL (MICROPY_TIMESTAMP_IMPL_UINT)
+#endif
+#endif
+
+// `mp_timestamp_t` is the type that should be used by the port
+// to represent timestamps, and is referenced to the platform epoch
+#if MICROPY_TIMESTAMP_IMPL == MICROPY_TIMESTAMP_IMPL_LONG_LONG
+typedef long long mp_timestamp_t;
+#elif MICROPY_TIMESTAMP_IMPL == MICROPY_TIMESTAMP_IMPL_UINT
+typedef mp_uint_t mp_timestamp_t;
+#elif MICROPY_TIMESTAMP_IMPL == MICROPY_TIMESTAMP_IMPL_TIME_T
+typedef time_t mp_timestamp_t;
+#endif
+
 // Whether POSIX-semantics non-blocking streams are supported
 #ifndef MICROPY_STREAMS_NON_BLOCK
 #define MICROPY_STREAMS_NON_BLOCK (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
@@ -991,6 +1069,16 @@ typedef double mp_float_t;
 #define MICROPY_VFS (0)
 #endif
 
+// Whether to include support for writable filesystems.
+#ifndef MICROPY_VFS_WRITABLE
+#define MICROPY_VFS_WRITABLE (1)
+#endif
+
+// Whether to enable the mp_vfs_rom_ioctl C function, and vfs.rom_ioctl Python function
+#ifndef MICROPY_VFS_ROM_IOCTL
+#define MICROPY_VFS_ROM_IOCTL (MICROPY_VFS_ROM)
+#endif
+
 // Support for VFS POSIX component, to mount a POSIX filesystem within VFS
 #ifndef MICROPY_VFS_POSIX
 #define MICROPY_VFS_POSIX (0)
@@ -1011,6 +1099,11 @@ typedef double mp_float_t;
 #define MICROPY_VFS_LFS2 (0)
 #endif
 
+// Support for ROMFS.
+#ifndef MICROPY_VFS_ROM
+#define MICROPY_VFS_ROM (0)
+#endif
+
 /*****************************************************************************/
 /* Fine control over Python builtins, classes, modules, etc                  */
 
@@ -1024,6 +1117,11 @@ typedef double mp_float_t;
 // Whether to implement attributes on functions
 #ifndef MICROPY_PY_FUNCTION_ATTRS
 #define MICROPY_PY_FUNCTION_ATTRS (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
+#endif
+
+// Whether to implement the __code__ attribute on functions, and function constructor
+#ifndef MICROPY_PY_FUNCTION_ATTRS_CODE
+#define MICROPY_PY_FUNCTION_ATTRS_CODE (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_FULL_FEATURES)
 #endif
 
 // Whether to support the descriptors __get__, __set__, __delete__
@@ -1114,6 +1212,15 @@ typedef double mp_float_t;
 #define MICROPY_PY_BUILTINS_BYTEARRAY (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_CORE_FEATURES)
 #endif
 
+// Whether to support code objects, and how many features they have
+#define MICROPY_PY_BUILTINS_CODE_NONE       (0)
+#define MICROPY_PY_BUILTINS_CODE_MINIMUM    (1)
+#define MICROPY_PY_BUILTINS_CODE_BASIC      (2)
+#define MICROPY_PY_BUILTINS_CODE_FULL       (3)
+#ifndef MICROPY_PY_BUILTINS_CODE
+#define MICROPY_PY_BUILTINS_CODE            (MICROPY_PY_SYS_SETTRACE ? MICROPY_PY_BUILTINS_CODE_FULL : (MICROPY_PY_FUNCTION_ATTRS_CODE ? MICROPY_PY_BUILTINS_CODE_BASIC : (MICROPY_PY_BUILTINS_COMPILE ? MICROPY_PY_BUILTINS_CODE_MINIMUM : MICROPY_PY_BUILTINS_CODE_NONE)))
+#endif
+
 // Whether to support dict.fromkeys() class method
 #ifndef MICROPY_PY_BUILTINS_DICT_FROMKEYS
 #define MICROPY_PY_BUILTINS_DICT_FROMKEYS (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_CORE_FEATURES)
@@ -1176,7 +1283,7 @@ typedef double mp_float_t;
 
 // Support for calling next() with second argument
 #ifndef MICROPY_PY_BUILTINS_NEXT2
-#define MICROPY_PY_BUILTINS_NEXT2 (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EVERYTHING)
+#define MICROPY_PY_BUILTINS_NEXT2 (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_BASIC_FEATURES)
 #endif
 
 // Whether to support rounding of integers (incl bignum); eg round(123,-1)=120
@@ -1279,6 +1386,11 @@ typedef double mp_float_t;
 #define MICROPY_PY___FILE__ (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_CORE_FEATURES)
 #endif
 
+// Whether to process __all__ when importing all public symbols from module
+#ifndef MICROPY_MODULE___ALL__
+#define MICROPY_MODULE___ALL__ (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_BASIC_FEATURES)
+#endif
+
 // Whether to provide mem-info related functions in micropython module
 #ifndef MICROPY_PY_MICROPYTHON_MEM_INFO
 #define MICROPY_PY_MICROPYTHON_MEM_INFO (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
@@ -1346,6 +1458,11 @@ typedef double mp_float_t;
 // Whether to provide the _asdict function for namedtuple
 #ifndef MICROPY_PY_COLLECTIONS_NAMEDTUPLE__ASDICT
 #define MICROPY_PY_COLLECTIONS_NAMEDTUPLE__ASDICT (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EVERYTHING)
+#endif
+
+// Whether to provide "marshal" module
+#ifndef MICROPY_PY_MARSHAL
+#define MICROPY_PY_MARSHAL (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EVERYTHING)
 #endif
 
 // Whether to provide "math" module
@@ -1425,7 +1542,7 @@ typedef double mp_float_t;
 
 // Whether to provide "io.IOBase" class to support user streams
 #ifndef MICROPY_PY_IO_IOBASE
-#define MICROPY_PY_IO_IOBASE (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
+#define MICROPY_PY_IO_IOBASE (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_CORE_FEATURES)
 #endif
 
 // Whether to provide "io.BytesIO" class
@@ -1612,6 +1729,11 @@ typedef double mp_float_t;
 // Set this to 0 to disable the divisor.
 #ifndef MICROPY_PY_THREAD_GIL_VM_DIVISOR
 #define MICROPY_PY_THREAD_GIL_VM_DIVISOR (32)
+#endif
+
+// Is a recursive mutex type in use?
+#ifndef MICROPY_PY_THREAD_RECURSIVE_MUTEX
+#define MICROPY_PY_THREAD_RECURSIVE_MUTEX (MICROPY_PY_THREAD && !MICROPY_PY_THREAD_GIL)
 #endif
 
 // Extended modules
@@ -2066,8 +2188,12 @@ typedef double mp_float_t;
 #endif // INT_FMT
 
 // Modifier for function which doesn't return
-#ifndef NORETURN
-#define NORETURN __attribute__((noreturn))
+#ifndef MP_NORETURN
+#define MP_NORETURN __attribute__((noreturn))
+#endif
+
+#if !MICROPY_PREVIEW_VERSION_2
+#define NORETURN MP_NORETURN
 #endif
 
 // Modifier for weak functions

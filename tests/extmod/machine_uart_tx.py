@@ -14,7 +14,11 @@ bit_margin = 0
 timing_margin_us = 100
 
 # Configure pins based on the target.
-if "esp32" in sys.platform:
+if "alif" in sys.platform:
+    uart_id = 1
+    pins = {}
+    bit_margin = 1
+elif "esp32" in sys.platform:
     uart_id = 1
     pins = {}
     timing_margin_us = 400
@@ -24,7 +28,10 @@ elif "mimxrt" in sys.platform:
     initial_delay_ms = 20  # UART sends idle frame after init, so wait for that
     bit_margin = 1
 elif "pyboard" in sys.platform:
-    uart_id = 4
+    if "STM32WB" in sys.implementation._machine:
+        uart_id = "LP1"
+    else:
+        uart_id = 4
     pins = {}
     initial_delay_ms = 50  # UART sends idle frame after init, so wait for that
     bit_margin = 1  # first start-bit must wait to sync with the UART clock

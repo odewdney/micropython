@@ -343,14 +343,22 @@ void OTG_FS_IRQHandler(void) {
 }
 #endif
 #if MICROPY_HW_USB_HS
+#if defined(STM32N6)
+void USB1_OTG_HS_IRQHandler(void) {
+    IRQ_ENTER(USB1_OTG_HS_IRQn);
+    HAL_PCD_IRQHandler(&pcd_hs_handle);
+    IRQ_EXIT(USB1_OTG_HS_IRQn);
+}
+#else
 void OTG_HS_IRQHandler(void) {
     IRQ_ENTER(OTG_HS_IRQn);
     HAL_PCD_IRQHandler(&pcd_hs_handle);
     IRQ_EXIT(OTG_HS_IRQn);
 }
 #endif
+#endif
 
-#if MICROPY_HW_USB_FS || MICROPY_HW_USB_HS
+#if (MICROPY_HW_USB_FS || MICROPY_HW_USB_HS) && !defined(STM32N6)
 /**
   * @brief  This function handles USB OTG Common FS/HS Wakeup functions.
   * @param  *pcd_handle for FS or HS
@@ -421,7 +429,7 @@ void OTG_FS_WKUP_IRQHandler(void) {
 }
 #endif
 
-#if MICROPY_HW_USB_HS
+#if MICROPY_HW_USB_HS && !defined(STM32N6)
 /**
   * @brief  This function handles USB OTG HS Wakeup IRQ Handler.
   * @param  None
@@ -452,62 +460,6 @@ void OTG_HS_WKUP_IRQHandler(void) {
 {
 }*/
 
-/**
-  * @brief  These functions handle the EXTI interrupt requests.
-  * @param  None
-  * @retval None
-  */
-void EXTI0_IRQHandler(void) {
-    IRQ_ENTER(EXTI0_IRQn);
-    Handle_EXTI_Irq(0);
-    IRQ_EXIT(EXTI0_IRQn);
-}
-
-void EXTI1_IRQHandler(void) {
-    IRQ_ENTER(EXTI1_IRQn);
-    Handle_EXTI_Irq(1);
-    IRQ_EXIT(EXTI1_IRQn);
-}
-
-void EXTI2_IRQHandler(void) {
-    IRQ_ENTER(EXTI2_IRQn);
-    Handle_EXTI_Irq(2);
-    IRQ_EXIT(EXTI2_IRQn);
-}
-
-void EXTI3_IRQHandler(void) {
-    IRQ_ENTER(EXTI3_IRQn);
-    Handle_EXTI_Irq(3);
-    IRQ_EXIT(EXTI3_IRQn);
-}
-
-void EXTI4_IRQHandler(void) {
-    IRQ_ENTER(EXTI4_IRQn);
-    Handle_EXTI_Irq(4);
-    IRQ_EXIT(EXTI4_IRQn);
-}
-
-void EXTI9_5_IRQHandler(void) {
-    IRQ_ENTER(EXTI9_5_IRQn);
-    Handle_EXTI_Irq(5);
-    Handle_EXTI_Irq(6);
-    Handle_EXTI_Irq(7);
-    Handle_EXTI_Irq(8);
-    Handle_EXTI_Irq(9);
-    IRQ_EXIT(EXTI9_5_IRQn);
-}
-
-void EXTI15_10_IRQHandler(void) {
-    IRQ_ENTER(EXTI15_10_IRQn);
-    Handle_EXTI_Irq(10);
-    Handle_EXTI_Irq(11);
-    Handle_EXTI_Irq(12);
-    Handle_EXTI_Irq(13);
-    Handle_EXTI_Irq(14);
-    Handle_EXTI_Irq(15);
-    IRQ_EXIT(EXTI15_10_IRQn);
-}
-
 void PVD_IRQHandler(void) {
     IRQ_ENTER(PVD_IRQn);
     Handle_EXTI_Irq(EXTI_PVD_OUTPUT);
@@ -536,7 +488,7 @@ void ETH_WKUP_IRQHandler(void) {
 }
 #endif
 
-#if defined(STM32H5)
+#if defined(STM32H5) || defined(STM32N6)
 void TAMP_IRQHandler(void) {
     IRQ_ENTER(TAMP_IRQn);
     Handle_EXTI_Irq(EXTI_RTC_TAMP);
@@ -558,6 +510,9 @@ void TAMP_STAMP_IRQHandler(void) {
 
 #if defined(STM32H5)
 void RTC_IRQHandler(void)
+#elif defined(STM32N6)
+#define RTC_WKUP_IRQn RTC_S_IRQn
+void RTC_S_IRQHandler(void)
 #else
 void RTC_WKUP_IRQHandler(void)
 #endif
@@ -565,8 +520,8 @@ void RTC_WKUP_IRQHandler(void)
     IRQ_ENTER(RTC_WKUP_IRQn);
     #if defined(STM32G0) || defined(STM32G4) || defined(STM32WL)
     RTC->MISR &= ~RTC_MISR_WUTMF; // clear wakeup interrupt flag
-    #elif defined(STM32H5)
-    RTC->SCR = RTC_SCR_CWUTF; // clear wakeup interrupt flag
+    #elif defined(STM32H5) || defined(STM32N6)
+    LL_RTC_ClearFlag_WUT(RTC);
     #elif defined(STM32H7A3xx) || defined(STM32H7A3xxQ) || defined(STM32H7B3xx) || defined(STM32H7B3xxQ)
     RTC->SR &= ~RTC_SR_WUTF; // clear wakeup interrupt flag
     #else
@@ -575,6 +530,12 @@ void RTC_WKUP_IRQHandler(void)
     Handle_EXTI_Irq(EXTI_RTC_WAKEUP); // clear EXTI flag and execute optional callback
     IRQ_EXIT(RTC_WKUP_IRQn);
 }
+
+#if defined(STM32N6)
+void RTC_IRQHandler(void) {
+    RTC_S_IRQHandler();
+}
+#endif
 
 #if defined(STM32F0) || defined(STM32G0) || defined(STM32L0)
 
@@ -604,28 +565,6 @@ void RTC_IRQHandler(void) {
     IRQ_EXIT(RTC_IRQn);
 }
 #endif
-
-void EXTI0_1_IRQHandler(void) {
-    IRQ_ENTER(EXTI0_1_IRQn);
-    Handle_EXTI_Irq(0);
-    Handle_EXTI_Irq(1);
-    IRQ_EXIT(EXTI0_1_IRQn);
-}
-
-void EXTI2_3_IRQHandler(void) {
-    IRQ_ENTER(EXTI2_3_IRQn);
-    Handle_EXTI_Irq(2);
-    Handle_EXTI_Irq(3);
-    IRQ_EXIT(EXTI2_3_IRQn);
-}
-
-void EXTI4_15_IRQHandler(void) {
-    IRQ_ENTER(EXTI4_15_IRQn);
-    for (int i = 4; i <= 15; ++i) {
-        Handle_EXTI_Irq(i);
-    }
-    IRQ_EXIT(EXTI4_15_IRQn);
-}
 
 void TIM1_BRK_UP_TRG_COM_IRQHandler(void) {
     IRQ_ENTER(TIM1_BRK_UP_TRG_COM_IRQn);
@@ -850,6 +789,14 @@ void TIM17_FDCAN_IT1_IRQHandler(void) {
     IRQ_ENTER(TIM17_FDCAN_IT1_IRQn);
     timer_irq_handler(17);
     IRQ_EXIT(TIM17_FDCAN_IT1_IRQn);
+}
+#endif
+
+#if defined(STM32G4)
+void TIM20_UP_IRQHandler(void) {
+    IRQ_ENTER(TIM20_UP_IRQn);
+    timer_irq_handler(20);
+    IRQ_EXIT(TIM20_UP_IRQn);
 }
 #endif
 

@@ -15,14 +15,23 @@ import time, sys
 
 byte_by_byte = False
 # Configure pins based on the target.
-if "esp32" in sys.platform:
+if "alif" in sys.platform:
+    uart_id = 1
+    tx_pin = None
+    rx_pin = None
+elif "esp32" in sys.platform:
     uart_id = 1
     tx_pin = 4
     rx_pin = 5
 elif "pyboard" in sys.platform:
-    uart_id = 4
-    tx_pin = None  # PA0
-    rx_pin = None  # PA1
+    if "STM32WB" in sys.implementation._machine:
+        # LPUART(1) is on PA2/PA3
+        uart_id = "LP1"
+    else:
+        # UART(4) is on PA0/PA1
+        uart_id = 4
+    tx_pin = None
+    rx_pin = None
 elif "samd" in sys.platform and "ItsyBitsy M0" in sys.implementation._machine:
     uart_id = 0
     tx_pin = "D1"

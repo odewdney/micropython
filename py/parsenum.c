@@ -36,7 +36,7 @@
 #include <math.h>
 #endif
 
-static NORETURN void raise_exc(mp_obj_t exc, mp_lexer_t *lex) {
+static MP_NORETURN void raise_exc(mp_obj_t exc, mp_lexer_t *lex) {
     // if lex!=NULL then the parser called us and we need to convert the
     // exception's type from ValueError to SyntaxError and add traceback info
     if (lex != NULL) {
@@ -45,6 +45,27 @@ static NORETURN void raise_exc(mp_obj_t exc, mp_lexer_t *lex) {
     }
     nlr_raise(exc);
 }
+
+#if MICROPY_LONGINT_IMPL != MICROPY_LONGINT_IMPL_LONGLONG
+// For the common small integer parsing case, we parse directly to mp_int_t and
+// check that the value doesn't overflow a smallint (in which case we fail over
+// to bigint parsing if supported)
+typedef mp_int_t parsed_int_t;
+
+#define PARSED_INT_MUL_OVERFLOW mp_small_int_mul_overflow
+#define PARSED_INT_FITS MP_SMALL_INT_FITS
+#else
+// In the special case where bigint support is long long, we save code size by
+// parsing directly to long long and then return either a bigint or smallint
+// from the same result.
+//
+// To avoid pulling in (slow) signed 64-bit math routines we do the initial
+// parsing to an unsigned long long and only convert to signed at the end.
+typedef unsigned long long parsed_int_t;
+
+#define PARSED_INT_MUL_OVERFLOW mp_mul_ull_overflow
+#define PARSED_INT_FITS(I) ((I) <= (unsigned long long)LLONG_MAX)
+#endif
 
 mp_obj_t mp_parse_num_integer(const char *restrict str_, size_t len, int base, mp_lexer_t *lex) {
     const byte *restrict str = (const byte *)str_;
@@ -76,7 +97,7 @@ mp_obj_t mp_parse_num_integer(const char *restrict str_, size_t len, int base, m
     str += mp_parse_num_base((const char *)str, top - str, &base);
 
     // string should be an integer number
-    mp_int_t int_val = 0;
+    parsed_int_t parsed_val = 0;
     const byte *restrict str_val_start = str;
     for (; str < top; str++) {
         // get next digit as a value
@@ -98,25 +119,29 @@ mp_obj_t mp_parse_num_integer(const char *restrict str_, size_t len, int base, m
             break;
         }
 
-        // add next digi and check for overflow
-        if (mp_small_int_mul_overflow(int_val, base)) {
+        // add next digit and check for overflow
+        if (PARSED_INT_MUL_OVERFLOW(parsed_val, base, &parsed_val)) {
             goto overflow;
         }
-        int_val = int_val * base + dig;
-        if (!MP_SMALL_INT_FITS(int_val)) {
+        parsed_val += dig;
+        if (!PARSED_INT_FITS(parsed_val)) {
             goto overflow;
         }
     }
 
-    // negate value if needed
-    if (neg) {
-        int_val = -int_val;
-    }
-
-    // create the small int
-    ret_val = MP_OBJ_NEW_SMALL_INT(int_val);
-
+    #if MICROPY_LONGINT_IMPL != MICROPY_LONGINT_IMPL_LONGLONG
+    // The PARSED_INT_FITS check above ensures parsed_val fits in small int representation
+    ret_val = MP_OBJ_NEW_SMALL_INT(neg ? (-parsed_val) : parsed_val);
 have_ret_val:
+    #else
+    // The PARSED_INT_FITS check above ensures parsed_val won't overflow signed long long
+    long long signed_val = parsed_val;
+    if (neg) {
+        signed_val = -signed_val;
+    }
+    ret_val = mp_obj_new_int_from_ll(signed_val); // Could be large or small int
+    #endif
+
     // check we parsed something
     if (str == str_val_start) {
         goto value_error;
@@ -135,6 +160,7 @@ have_ret_val:
     return ret_val;
 
 overflow:
+    #if MICROPY_LONGINT_IMPL != MICROPY_LONGINT_IMPL_LONGLONG
     // reparse using long int
     {
         const char *s2 = (const char *)str_val_start;
@@ -142,6 +168,9 @@ overflow:
         str = (const byte *)s2;
         goto have_ret_val;
     }
+    #else
+    mp_raise_msg(&mp_type_OverflowError, MP_ERROR_TEXT("result overflows long long storage"));
+    #endif
 
 value_error:
     {
@@ -151,13 +180,13 @@ value_error:
         raise_exc(exc, lex);
         #elif MICROPY_ERROR_REPORTING == MICROPY_ERROR_REPORTING_NORMAL
         mp_obj_t exc = mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-            MP_ERROR_TEXT("invalid syntax for integer with base %d"), base);
+            MP_ERROR_TEXT("invalid syntax for integer with base %d"), base == 1 ? 0 : base);
         raise_exc(exc, lex);
         #else
         vstr_t vstr;
         mp_print_t print;
         vstr_init_print(&vstr, 50, &print);
-        mp_printf(&print, "invalid syntax for integer with base %d: ", base);
+        mp_printf(&print, "invalid syntax for integer with base %d: ", base == 1 ? 0 : base);
         mp_str_print_quoted(&print, str_val_start, top - str_val_start, true);
         mp_obj_t exc = mp_obj_new_exception_arg1(&mp_type_ValueError,
             mp_obj_new_str_from_utf8_vstr(&vstr));
@@ -179,39 +208,40 @@ typedef enum {
 } parse_dec_in_t;
 
 #if MICROPY_PY_BUILTINS_FLOAT
-// DEC_VAL_MAX only needs to be rough and is used to retain precision while not overflowing
+// MANTISSA_MAX is used to retain precision while not overflowing mantissa
 // SMALL_NORMAL_VAL is the smallest power of 10 that is still a normal float
 // EXACT_POWER_OF_10 is the largest value of x so that 10^x can be stored exactly in a float
 //   Note: EXACT_POWER_OF_10 is at least floor(log_5(2^mantissa_length)). Indeed, 10^n = 2^n * 5^n
 //   so we only have to store the 5^n part in the mantissa (the 2^n part will go into the float's
 //   exponent).
 #if MICROPY_FLOAT_IMPL == MICROPY_FLOAT_IMPL_FLOAT
-#define DEC_VAL_MAX 1e20F
+#define MANTISSA_MAX 0x19999998U
 #define SMALL_NORMAL_VAL (1e-37F)
 #define SMALL_NORMAL_EXP (-37)
 #define EXACT_POWER_OF_10 (9)
 #elif MICROPY_FLOAT_IMPL == MICROPY_FLOAT_IMPL_DOUBLE
-#define DEC_VAL_MAX 1e200
+#define MANTISSA_MAX 0x1999999999999998ULL
 #define SMALL_NORMAL_VAL (1e-307)
 #define SMALL_NORMAL_EXP (-307)
 #define EXACT_POWER_OF_10 (22)
 #endif
 
 // Break out inner digit accumulation routine to ease trailing zero deferral.
-static void accept_digit(mp_float_t *p_dec_val, int dig, int *p_exp_extra, int in) {
+static mp_float_uint_t accept_digit(mp_float_uint_t p_mantissa, unsigned int dig, int *p_exp_extra, int in) {
     // Core routine to ingest an additional digit.
-    if (*p_dec_val < DEC_VAL_MAX) {
+    if (p_mantissa < MANTISSA_MAX) {
         // dec_val won't overflow so keep accumulating
-        *p_dec_val = 10 * *p_dec_val + dig;
         if (in == PARSE_DEC_IN_FRAC) {
             --(*p_exp_extra);
         }
+        return 10u * p_mantissa + dig;
     } else {
         // dec_val might overflow and we anyway can't represent more digits
         // of precision, so ignore the digit and just adjust the exponent
         if (in == PARSE_DEC_IN_INTG) {
             ++(*p_exp_extra);
         }
+        return p_mantissa;
     }
 }
 #endif // MICROPY_PY_BUILTINS_FLOAT
@@ -226,13 +256,13 @@ mp_obj_t mp_parse_num_float(const char *str, size_t len, bool allow_imag, mp_lex
 
     const char *top = str + len;
     mp_float_t dec_val = 0;
-    bool dec_neg = false;
 
     #if MICROPY_PY_BUILTINS_COMPLEX
     unsigned int real_imag_state = REAL_IMAG_STATE_START;
     mp_float_t dec_real = 0;
-parse_start:
+parse_start:;
     #endif
+    bool dec_neg = false;
 
     // skip leading space
     for (; str < top && unichar_isspace(*str); str++) {
@@ -251,28 +281,23 @@ parse_start:
     const char *str_val_start = str;
 
     // determine what the string is
-    if (str < top && (str[0] | 0x20) == 'i') {
-        // string starts with 'i', should be 'inf' or 'infinity' (case insensitive)
-        if (str + 2 < top && (str[1] | 0x20) == 'n' && (str[2] | 0x20) == 'f') {
-            // inf
-            str += 3;
-            dec_val = (mp_float_t)INFINITY;
-            if (str + 4 < top && (str[0] | 0x20) == 'i' && (str[1] | 0x20) == 'n' && (str[2] | 0x20) == 'i' && (str[3] | 0x20) == 't' && (str[4] | 0x20) == 'y') {
-                // infinity
-                str += 5;
-            }
+    if (str + 2 < top && (str[0] | 0x20) == 'i' && (str[1] | 0x20) == 'n' && (str[2] | 0x20) == 'f') {
+        // 'inf' or 'infinity' (case insensitive)
+        str += 3;
+        dec_val = (mp_float_t)INFINITY;
+        if (str + 4 < top && (str[0] | 0x20) == 'i' && (str[1] | 0x20) == 'n' && (str[2] | 0x20) == 'i' && (str[3] | 0x20) == 't' && (str[4] | 0x20) == 'y') {
+            // infinity
+            str += 5;
         }
-    } else if (str < top && (str[0] | 0x20) == 'n') {
-        // string starts with 'n', should be 'nan' (case insensitive)
-        if (str + 2 < top && (str[1] | 0x20) == 'a' && (str[2] | 0x20) == 'n') {
-            // NaN
-            str += 3;
-            dec_val = MICROPY_FLOAT_C_FUN(nan)("");
-        }
+    } else if (str + 2 < top && (str[0] | 0x20) == 'n' && (str[1] | 0x20) == 'a' && (str[2] | 0x20) == 'n') {
+        // 'nan' (case insensitive)
+        str += 3;
+        dec_val = MICROPY_FLOAT_C_FUN(nan)("");
     } else {
         // string should be a decimal number
         parse_dec_in_t in = PARSE_DEC_IN_INTG;
         bool exp_neg = false;
+        mp_float_uint_t mantissa = 0;
         int exp_val = 0;
         int exp_extra = 0;
         int trailing_zeros_intg = 0, trailing_zeros_frac = 0;
@@ -288,9 +313,9 @@ parse_start:
                         exp_val = 10 * exp_val + dig;
                     }
                 } else {
-                    if (dig == 0 || dec_val >= DEC_VAL_MAX) {
+                    if (dig == 0 || mantissa >= MANTISSA_MAX) {
                         // Defer treatment of zeros in fractional part.  If nothing comes afterwards, ignore them.
-                        // Also, once we reach DEC_VAL_MAX, treat every additional digit as a trailing zero.
+                        // Also, once we reach MANTISSA_MAX, treat every additional digit as a trailing zero.
                         if (in == PARSE_DEC_IN_INTG) {
                             ++trailing_zeros_intg;
                         } else {
@@ -299,14 +324,14 @@ parse_start:
                     } else {
                         // Time to un-defer any trailing zeros.  Intg zeros first.
                         while (trailing_zeros_intg) {
-                            accept_digit(&dec_val, 0, &exp_extra, PARSE_DEC_IN_INTG);
+                            mantissa = accept_digit(mantissa, 0, &exp_extra, PARSE_DEC_IN_INTG);
                             --trailing_zeros_intg;
                         }
                         while (trailing_zeros_frac) {
-                            accept_digit(&dec_val, 0, &exp_extra, PARSE_DEC_IN_FRAC);
+                            mantissa = accept_digit(mantissa, 0, &exp_extra, PARSE_DEC_IN_FRAC);
                             --trailing_zeros_frac;
                         }
-                        accept_digit(&dec_val, dig, &exp_extra, in);
+                        mantissa = accept_digit(mantissa, dig, &exp_extra, in);
                     }
                 }
             } else if (in == PARSE_DEC_IN_INTG && dig == '.') {
@@ -340,6 +365,7 @@ parse_start:
 
         // apply the exponent, making sure it's not a subnormal value
         exp_val += exp_extra + trailing_zeros_intg;
+        dec_val = (mp_float_t)mantissa;
         if (exp_val < SMALL_NORMAL_EXP) {
             exp_val -= SMALL_NORMAL_EXP;
             dec_val *= SMALL_NORMAL_VAL;
