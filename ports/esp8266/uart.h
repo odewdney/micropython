@@ -2,6 +2,7 @@
 #define MICROPY_INCLUDED_ESP8266_UART_H
 
 #include <eagle_soc.h>
+#include "uart_register.h"
 
 #define UART0 (0)
 #define UART1 (1)
@@ -31,6 +32,14 @@ typedef enum {
     UART_STICK_PARITY_DIS   = 0,
     UART_STICK_PARITY_EN    = BIT1
 } UartExistParity;
+
+typedef enum {
+    UART_None_Inverse = 0x0,
+    UART_Rxd_Inverse  = UART_RXD_INV,
+    UART_CTS_Inverse  = UART_CTS_INV,
+    UART_Txd_Inverse  = UART_TXD_INV,
+    UART_RTS_Inverse  = UART_RTS_INV,
+} UART_LineLevelInverse;
 
 typedef enum {
     UART_BIT_RATE_9600     = 9600,
@@ -110,4 +119,6 @@ void uart0_set_rxbuf(uint8 *buf, int len);
 int uart_rx_any(uint8 uart);
 int uart_tx_any_room(uint8 uart);
 
+#define UART_LINE_INV_MASK  (0x3f<<19)
+void UART_SetLineInverse(uint8_t uart_no, UART_LineLevelInverse inverse_mask);
 #endif // MICROPY_INCLUDED_ESP8266_UART_H

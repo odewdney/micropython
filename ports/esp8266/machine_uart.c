@@ -45,6 +45,7 @@ typedef struct _machine_uart_obj_t {
     uint32_t baudrate;
     uint16_t timeout;       // timeout waiting for first char (in ms)
     uint16_t timeout_char;  // timeout waiting between chars (in ms)
+    uint32_t invert;
 } machine_uart_obj_t;
 
 static const char *_parity_name[] = {"None", "1", "0"};
@@ -53,17 +54,23 @@ static const char *_parity_name[] = {"None", "1", "0"};
 // MicroPython bindings for UART
 
 // The UART class doesn't have any constants for this port.
-#define MICROPY_PY_MACHINE_UART_CLASS_CONSTANTS
+#define MICROPY_PY_MACHINE_UART_CLASS_CONSTANTS \
+    { MP_ROM_QSTR(MP_QSTR_INV_TX), MP_ROM_INT(UART_TXD_INV) }, \
+    { MP_ROM_QSTR(MP_QSTR_INV_RX), MP_ROM_INT(UART_RXD_INV) }, \
 
 static void mp_machine_uart_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_uart_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_printf(print, "UART(%u, baudrate=%u, bits=%u, parity=%s, stop=%u, rxbuf=%u, timeout=%u, timeout_char=%u)",
+    mp_printf(print, "UART(%u, baudrate=%u, bits=%u, parity=%s, stop=%u, rxbuf=%u, timeout=%u, timeout_char=%u",
         self->uart_id, self->baudrate, self->bits, _parity_name[self->parity],
         self->stop, uart0_get_rxbuf_len() - 1, self->timeout, self->timeout_char);
+    if (self->invert) {
+        mp_printf(print, ", invert=%08x", self->invert);
+    }
+    mp_printf(print, ")");
 }
 
 static void mp_machine_uart_init_helper(machine_uart_obj_t *self, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    enum { ARG_baudrate, ARG_bits, ARG_parity, ARG_stop, ARG_tx, ARG_rx, ARG_rxbuf, ARG_timeout, ARG_timeout_char };
+    enum { ARG_baudrate, ARG_bits, ARG_parity, ARG_stop, ARG_tx, ARG_rx, ARG_rxbuf, ARG_timeout, ARG_timeout_char, ARG_invert };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_baudrate, MP_ARG_INT, {.u_int = 0} },
         { MP_QSTR_bits, MP_ARG_INT, {.u_int = 0} },
@@ -74,6 +81,7 @@ static void mp_machine_uart_init_helper(machine_uart_obj_t *self, size_t n_args,
         { MP_QSTR_rxbuf, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
         { MP_QSTR_timeout, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
         { MP_QSTR_timeout_char, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_invert, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -185,9 +193,16 @@ static void mp_machine_uart_init_helper(machine_uart_obj_t *self, size_t n_args,
     if (self->timeout_char < min_timeout_char) {
         self->timeout_char = min_timeout_char;
     }
-
+    // set line inversion
+    if (args[ARG_invert].u_int != -1) {
+        if (args[ARG_invert].u_int & ~UART_LINE_INV_MASK) {
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid inversion mask"));
+        }
+        self->invert = args[ARG_invert].u_int;
+    }
     // setup
     uart_setup(self->uart_id);
+    UART_SetLineInverse(self->uart_id, self->invert);
 }
 
 static mp_obj_t mp_machine_uart_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
@@ -208,6 +223,7 @@ static mp_obj_t mp_machine_uart_make_new(const mp_obj_type_t *type, size_t n_arg
     self->stop = 1;
     self->timeout = 0;
     self->timeout_char = 0;
+    self->invert = 0;
 
     // init the peripheral
     mp_map_t kw_args;

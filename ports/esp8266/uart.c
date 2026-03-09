@@ -11,9 +11,9 @@
 *******************************************************************************/
 #include "ets_sys.h"
 #include "osapi.h"
+#include "uart_register.h"
 #include "uart.h"
 #include "osapi.h"
-#include "uart_register.h"
 #include "etshal.h"
 #include "c_types.h"
 #include "user_interface.h"
@@ -93,6 +93,13 @@ static void ICACHE_FLASH_ATTR uart_config(uint8 uart_no) {
     WRITE_PERI_REG(UART_INT_CLR(uart_no), 0xffff);
     // enable rx_interrupt
     SET_PERI_REG_MASK(UART_INT_ENA(uart_no), UART_RXFIFO_FULL_INT_ENA);
+}
+
+void ICACHE_FLASH_ATTR
+UART_SetLineInverse(uint8_t uart_no, UART_LineLevelInverse inverse_mask)
+{
+    CLEAR_PERI_REG_MASK(UART_CONF0(uart_no), UART_LINE_INV_MASK);
+    SET_PERI_REG_MASK(UART_CONF0(uart_no), inverse_mask);
 }
 
 /******************************************************************************
@@ -216,6 +223,10 @@ bool ICACHE_FLASH_ATTR uart_rx_wait(uint32_t timeout_us) {
         if (uart_ringbuf.iget != uart_ringbuf.iput) {
             return true; // have at least 1 char ready for reading
         }
+        uint8_t uart = 0;
+        if (!uart_attached_to_dupterm && READ_PERI_REG(UART_STATUS(uart)) & (UART_RXFIFO_CNT << UART_RXFIFO_CNT_S)) {
+            return true; // have at least 1 char ready for reading
+        }
         if (system_get_time() - start >= timeout_us) {
             return false; // timeout
         }
@@ -224,9 +235,15 @@ bool ICACHE_FLASH_ATTR uart_rx_wait(uint32_t timeout_us) {
 }
 
 int uart_rx_any(uint8 uart) {
+    if(uart != 0)
+        return false;
     if (uart_ringbuf.iget != uart_ringbuf.iput) {
         return true; // have at least 1 char ready for reading
     }
+    if (!uart_attached_to_dupterm && READ_PERI_REG(UART_STATUS(uart)) & (UART_RXFIFO_CNT << UART_RXFIFO_CNT_S)) {
+        return true; // have at least 1 char ready for reading
+    }
+
     return false;
 }
 
@@ -238,17 +255,27 @@ int uart_tx_any_room(uint8 uart) {
     return true;
 }
 
-// Returns char from the input buffer, else -1 if buffer is empty.
-int uart_rx_char(void) {
-    return ringbuf_get(&uart_ringbuf);
-}
-
 int uart_rx_one_char(uint8 uart_no) {
     if (READ_PERI_REG(UART_STATUS(uart_no)) & (UART_RXFIFO_CNT << UART_RXFIFO_CNT_S)) {
         return READ_PERI_REG(UART_FIFO(uart_no)) & 0xff;
     }
     return -1;
 }
+
+// Returns char from the input buffer, else -1 if buffer is empty.
+int uart_rx_char(void) {
+    int ret = ringbuf_get(&uart_ringbuf);
+    if ( ret == -1 && !uart_attached_to_dupterm ) {
+        ETS_UART_INTR_DISABLE();
+        ret = ringbuf_get(&uart_ringbuf);
+        if ( ret == -1 ) {
+            ret = uart_rx_one_char(0);
+        }
+        ETS_UART_INTR_ENABLE();
+    }
+    return ret;
+}
+
 
 /******************************************************************************
  * FunctionName : uart_init
